@@ -10,7 +10,9 @@ def next_deadline(after: datetime, tz_name: str) -> datetime:
     tz = ZoneInfo(tz_name)
     local = after.astimezone(tz)
     days_ahead = (DEADLINE_WEEKDAY - local.weekday()) % 7
-    candidate = datetime.combine(local.date() + timedelta(days=days_ahead), DEADLINE_TIME, tzinfo=tz)
+    candidate = datetime.combine(
+        local.date() + timedelta(days=days_ahead), DEADLINE_TIME, tzinfo=tz
+    )
     if candidate <= local:
         # Same-tzinfo arithmetic is wall-clock arithmetic, so this stays at 18:00 across DST.
         candidate += timedelta(days=7)

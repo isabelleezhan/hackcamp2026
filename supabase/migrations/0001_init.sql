@@ -1,141 +1,57 @@
--- Community Newspaper schema. See AGENTS.md for the product workflow these tables support.
---
--- Run this in the Supabase dashboard SQL editor (or `supabase db push`).
--- The FastAPI backend uses the service-role key (which bypasses RLS) and enforces
--- membership checks itself. RLS is enabled with NO policies so the browser's anon key
--- cannot read these tables directly; all data access goes through the backend.
---
--- Idempotency without transactions (supabase-py has none):
---   * close a period with `update ... where id = :id and status = 'open'` and treat
---     zero returned rows as "already closed";
---   * editions.period_id is UNIQUE, so a second publish of the same period fails to insert;
---   * email_deliveries (edition_id, user_id) is UNIQUE, so recipients are recorded once;
---     only send rows whose status is 'pending' or 'failed'.
---
--- Limits that need counting across rows (30 notes or 30 minutes of audio per person per
--- week) are enforced in the backend; per-row limits are CHECK constraints below.
-
-create extension if not exists pgcrypto;
-
--- One row per person (their own Supabase Auth account).
-create table public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
-  email text not null,
-  display_name text not null default '',
-  -- 'auto': browser location services, refreshed when the app is opened or a note is saved.
-  -- 'manual': the person typed a city (also the fallback when location permission is denied).
-  location_mode text not null default 'manual' check (location_mode in ('auto', 'manual')),
-  city text,
-  -- Rounded to ~10 km on the device before it is sent; never store precise coordinates.
-  lat double precision check (lat between -90 and 90),
-  lng double precision check (lng between -180 and 180),
-  location_updated_at timestamptz,
-  -- IANA zone from the browser (Intl...resolvedOptions().timeZone); shows their local time on the globe.
-  timezone text,
-  created_at timestamptz not null default now()
-);
-
-create table public.groups (
-  id uuid primary key default gen_random_uuid(),
-  name text not null check (char_length(name) between 1 and 80),
-  join_code text not null unique,
-  timezone text not null default 'America/Vancouver',
-  created_by uuid not null references public.profiles (id),
-  created_at timestamptz not null default now()
-);
-
-create table public.memberships (
-  group_id uuid not null references public.groups (id) on delete cascade,
-  user_id uuid not null references public.profiles (id) on delete cascade,
-  role text not null default 'member' check (role in ('organizer', 'member')),
-  email_opt_in boolean not null default false,
-  joined_at timestamptz not null default now(),
-  primary key (group_id, user_id)
-);
-create index on public.memberships (user_id);
-
--- A week. Closes Sunday 18:00 in the group's timezone (or early via "End week & publish").
-create table public.issue_periods (
-  id uuid primary key default gen_random_uuid(),
-  group_id uuid not null references public.groups (id) on delete cascade,
-  number int not null,
-  starts_at timestamptz not null,
-  deadline_at timestamptz not null,
-  closed_at timestamptz,
-  status text not null default 'open' check (status in ('open', 'closed')),
-  unique (group_id, number)
-);
--- Exactly one open period per group.
-create unique index one_open_period_per_group on public.issue_periods (group_id) where status = 'open';
-create index on public.issue_periods (status, deadline_at);
-
--- Notes: a person can add as many as they like during a week (voice or typed).
--- Voice notes are transcribed on upload and the person reviews the text before saving,
--- so every row has final text in `body`. Editable/deletable until the period closes.
-create table public.notes (
-  id uuid primary key default gen_random_uuid(),
-  period_id uuid not null references public.issue_periods (id) on delete cascade,
-  group_id uuid not null references public.groups (id) on delete cascade,
-  user_id uuid not null references public.profiles (id) on delete cascade,
-  kind text not null check (kind in ('voice', 'text')),
-  -- Typed notes: up to 2,000 characters. Voice transcripts: 3 minutes of speech fits in 4,000.
-  body text not null check (
-    char_length(body) >= 1
-    and char_length(body) <= case when kind = 'text' then 2000 else 4000 end
-  ),
-  prompt text,  -- optional suggestion chip the person picked ("Highlight", "Hard part", ...)
-  audio_path text,  -- object path in the private reflection-audio bucket
-  audio_seconds numeric(5, 1) check (audio_seconds > 0 and audio_seconds <= 180),
-  -- Where and when it was recorded; used for newspaper datelines ("LISBON - Bea ...").
-  recorded_at timestamptz not null default now(),
-  city text,
-  lat double precision check (lat between -90 and 90),
-  lng double precision check (lng between -180 and 180),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  check ((kind = 'voice') = (audio_path is not null and audio_seconds is not null))
-);
-create index on public.notes (period_id, user_id, recorded_at);
-
--- One edition per period. Gemini writes `content` as structured JSON (validated by the
--- backend, rendered by a fixed template). `source_snapshot` is the frozen list of notes
--- the edition was generated from, so regeneration never loses or adds notes.
-create table public.editions (
-  id uuid primary key default gen_random_uuid(),
-  group_id uuid not null references public.groups (id) on delete cascade,
-  period_id uuid not null unique references public.issue_periods (id) on delete cascade,
-  issue_number int not null,
-  status text not null default 'generating' check (status in ('generating', 'published', 'failed')),
-  content jsonb,
-  source_snapshot jsonb not null,
-  error text,
-  created_at timestamptz not null default now(),
-  published_at timestamptz
-);
-create index on public.editions (group_id, issue_number desc);
-
-create table public.email_deliveries (
-  id uuid primary key default gen_random_uuid(),
-  edition_id uuid not null references public.editions (id) on delete cascade,
-  user_id uuid not null references public.profiles (id) on delete cascade,
-  email text not null,
-  status text not null default 'pending' check (status in ('pending', 'sent', 'failed')),
-  provider_id text,
-  error text,
-  attempts int not null default 0,
-  sent_at timestamptz,
-  unique (edition_id, user_id)
-);
-
+begin;
+create extension if not exists pgcrypto with schema extensions;
+create table public.profiles(id uuid primary key references auth.users(id) on delete cascade, display_name text not null default 'Member' check(length(display_name) between 1 and 80));
+create table public.groups(id uuid primary key default gen_random_uuid(),name text not null check(length(trim(name)) between 1 and 120),join_code text not null unique default encode(extensions.gen_random_bytes(16),'hex'),timezone text not null default 'America/Vancouver',created_by uuid not null references public.profiles(id),created_at timestamptz not null default now());
+create table public.memberships(group_id uuid references public.groups(id),user_id uuid references public.profiles(id),role text not null default 'member' check(role in ('member','organizer')),email_enabled boolean not null default false,primary key(group_id,user_id));
+create table public.issue_periods(id uuid primary key default gen_random_uuid(),group_id uuid not null references public.groups(id),starts_at timestamptz not null default now(),deadline_at timestamptz not null,closed_at timestamptz,unique(id,group_id),check(deadline_at>starts_at));
+create unique index one_open_period on public.issue_periods(group_id) where closed_at is null;
+create table public.reflections(id uuid primary key default gen_random_uuid(),group_id uuid not null,period_id uuid not null,user_id uuid not null references public.profiles(id),body text not null default '' check(length(body)<=2000),audio_path text,audio_duration_seconds numeric check(audio_duration_seconds>0 and audio_duration_seconds<=60),status text not null default 'draft' check(status in ('draft','submitted')),submitted_at timestamptz,updated_at timestamptz not null default now(),foreign key(period_id,group_id) references public.issue_periods(id,group_id),unique(period_id,user_id),check(status='draft' or (length(trim(body))>0 and submitted_at is not null)),check(audio_path is null or audio_path like group_id::text||'/'||user_id::text||'/%'));
+create table public.editions(id uuid primary key default gen_random_uuid(),group_id uuid not null,period_id uuid not null unique,status text not null default 'pending' check(status in ('pending','generating','published','failed')),content jsonb check(content is null or jsonb_typeof(content)='object'),generation_error text,generation_attempts integer not null default 0,published_at timestamptz,created_at timestamptz not null default now(),foreign key(period_id,group_id) references public.issue_periods(id,group_id),check(status<>'published' or (content is not null and published_at is not null)));
+create table public.edition_sources(edition_id uuid references public.editions(id),reflection_id uuid references public.reflections(id),user_id uuid not null references public.profiles(id),display_name text not null,body text not null,primary key(edition_id,reflection_id));
+create table public.email_deliveries(id uuid primary key default gen_random_uuid(),edition_id uuid not null references public.editions(id),user_id uuid not null references public.profiles(id),recipient_email text not null,status text not null default 'pending' check(status in ('pending','sending','sent','failed','skipped')),attempts integer not null default 0,provider_message_id text,last_error text,sent_at timestamptz,unique(edition_id,user_id));
+create index membership_user on public.memberships(user_id);
+create index reflections_group on public.reflections(group_id);
+create index editions_group on public.editions(group_id,published_at desc);
+create function public.is_group_member(gid uuid) returns boolean language sql stable security definer set search_path='' as $$ select exists(select 1 from public.memberships where group_id=gid and user_id=auth.uid()) $$;
+create function public.next_weekly_deadline(tz text,after_at timestamptz) returns timestamptz language plpgsql stable set search_path='' as $$ declare local_time timestamp; cutoff timestamp; begin if not exists(select 1 from pg_timezone_names where name=tz) then raise exception 'Invalid timezone'; end if; local_time:=after_at at time zone tz; cutoff:=date_trunc('week',local_time)+interval '6 days 18 hours'; if cutoff<=local_time then cutoff:=cutoff+interval '7 days'; end if; return cutoff at time zone tz; end $$;
+create function public.handle_new_user() returns trigger language plpgsql security definer set search_path='' as $$ begin insert into public.profiles values(new.id,left(coalesce(nullif(trim(new.raw_user_meta_data->>'display_name'),''),'Member'),80)); return new; end $$;
+create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
+insert into public.profiles select id,left(coalesce(nullif(trim(raw_user_meta_data->>'display_name'),''),'Member'),80) from auth.users on conflict do nothing;
+create function public.create_group(group_name text,group_timezone text default 'America/Vancouver') returns uuid language plpgsql security definer set search_path='' as $$ declare gid uuid; begin if auth.uid() is null then raise exception 'Sign in required'; end if; insert into public.groups(name,timezone,created_by) values(trim(group_name),group_timezone,auth.uid()) returning id into gid; insert into public.memberships values(gid,auth.uid(),'organizer',false); insert into public.issue_periods(group_id,deadline_at) values(gid,public.next_weekly_deadline(group_timezone,now())); return gid; end $$;
+create function public.join_group(invitation_code text) returns uuid language plpgsql security definer set search_path='' as $$ declare gid uuid; begin if auth.uid() is null then raise exception 'Sign in required'; end if; select id into gid from public.groups where join_code=trim(invitation_code); if gid is null then raise exception 'Invalid invitation'; end if; insert into public.memberships(group_id,user_id) values(gid,auth.uid()) on conflict do nothing; return gid; end $$;
+create function public.set_email_preference(gid uuid,enabled boolean) returns void language plpgsql security definer set search_path='' as $$ begin update public.memberships set email_enabled=enabled where group_id=gid and user_id=auth.uid(); if not found then raise exception 'Membership required'; end if; end $$;
+create function public.guard_reflection() returns trigger language plpgsql security definer set search_path='' as $$ declare p public.issue_periods; begin select * into p from public.issue_periods where id=case when TG_OP='DELETE' then old.period_id else new.period_id end for update; if p.id is null or p.closed_at is not null or p.deadline_at<=now() then raise exception 'Period is closed'; end if; if TG_OP='DELETE' then return old; end if; if TG_OP='UPDATE' and (new.id,new.period_id,new.group_id,new.user_id) is distinct from (old.id,old.period_id,old.group_id,old.user_id) then raise exception 'Reflection identity cannot change'; end if; new.updated_at:=now(); new.submitted_at:=case when new.status='submitted' then now() else null end; return new; end $$;
+create trigger guard_reflection before insert or update or delete on public.reflections for each row execute function public.guard_reflection();
+create function public.close_issue(gid uuid,expected_period_id uuid) returns uuid language plpgsql security definer set search_path='' as $$ declare p public.issue_periods; eid uuid; tz text; cutoff timestamptz; begin if coalesce(auth.role(),'')<>'service_role' and not exists(select 1 from public.memberships where group_id=gid and user_id=auth.uid() and role='organizer') then raise exception 'Organizer required'; end if; select * into p from public.issue_periods where id=expected_period_id and group_id=gid for update; if not found then raise exception 'Period not found'; end if; if p.closed_at is not null then select id into eid from public.editions where period_id=p.id; return eid; end if; select timezone into tz from public.groups where id=gid; cutoff:=least(now(),p.deadline_at); update public.issue_periods set closed_at=cutoff where id=p.id; if exists(select 1 from public.reflections where period_id=p.id and status='submitted') then insert into public.editions(group_id,period_id) values(gid,p.id) returning id into eid; insert into public.edition_sources select eid,r.id,r.user_id,u.display_name,r.body from public.reflections r join public.profiles u on u.id=r.user_id where r.period_id=p.id and r.status='submitted'; end if; insert into public.issue_periods(group_id,starts_at,deadline_at) values(gid,cutoff,case when now()<p.deadline_at then p.deadline_at else public.next_weekly_deadline(tz,now()) end); return eid; end $$;
 alter table public.profiles enable row level security;
 alter table public.groups enable row level security;
 alter table public.memberships enable row level security;
 alter table public.issue_periods enable row level security;
-alter table public.notes enable row level security;
+alter table public.reflections enable row level security;
 alter table public.editions enable row level security;
+alter table public.edition_sources enable row level security;
 alter table public.email_deliveries enable row level security;
-
--- Private bucket for voice notes (backend uploads with the service role key).
-insert into storage.buckets (id, name, public)
-values ('reflection-audio', 'reflection-audio', false)
-on conflict (id) do nothing;
+create policy profile_read on public.profiles for select to authenticated using(id=auth.uid() or exists(select 1 from public.memberships m where m.user_id=profiles.id and public.is_group_member(m.group_id)));
+create policy profile_update on public.profiles for update to authenticated using(id=auth.uid()) with check(id=auth.uid());
+create policy group_read on public.groups for select to authenticated using(public.is_group_member(id));
+create policy membership_read on public.memberships for select to authenticated using(public.is_group_member(group_id));
+create policy period_read on public.issue_periods for select to authenticated using(public.is_group_member(group_id));
+create policy reflection_read on public.reflections for select to authenticated using(public.is_group_member(group_id) and (status='submitted' or user_id=auth.uid()));
+create policy reflection_insert on public.reflections for insert to authenticated with check(user_id=auth.uid() and public.is_group_member(group_id));
+create policy reflection_update on public.reflections for update to authenticated using(user_id=auth.uid() and public.is_group_member(group_id)) with check(user_id=auth.uid() and public.is_group_member(group_id));
+create policy reflection_delete on public.reflections for delete to authenticated using(user_id=auth.uid() and public.is_group_member(group_id));
+create policy edition_read on public.editions for select to authenticated using(public.is_group_member(group_id));
+create policy sources_read on public.edition_sources for select to authenticated using(exists(select 1 from public.editions e where e.id=edition_id and public.is_group_member(e.group_id)));
+create policy delivery_read on public.email_deliveries for select to authenticated using(user_id=auth.uid() and exists(select 1 from public.editions e where e.id=edition_id and public.is_group_member(e.group_id)));
+revoke all on public.profiles,public.groups,public.memberships,public.issue_periods,public.reflections,public.editions,public.edition_sources,public.email_deliveries from anon,authenticated;
+grant select on public.profiles,public.groups,public.memberships,public.issue_periods,public.reflections,public.editions,public.edition_sources,public.email_deliveries to authenticated;
+grant update(display_name) on public.profiles to authenticated;
+grant insert,update,delete on public.reflections to authenticated;
+grant all on public.profiles,public.groups,public.memberships,public.issue_periods,public.reflections,public.editions,public.edition_sources,public.email_deliveries to service_role;
+revoke all on function public.is_group_member(uuid),public.next_weekly_deadline(text,timestamptz),public.handle_new_user(),public.create_group(text,text),public.join_group(text),public.set_email_preference(uuid,boolean),public.guard_reflection(),public.close_issue(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.is_group_member(uuid),public.create_group(text,text),public.join_group(text),public.set_email_preference(uuid,boolean),public.close_issue(uuid,uuid) to authenticated;
+grant execute on function public.next_weekly_deadline(text,timestamptz),public.close_issue(uuid,uuid) to service_role;
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('reflection-audio','reflection-audio',false,10485760,array['audio/webm','audio/ogg','audio/mpeg','audio/mp4','audio/wav','audio/x-wav','audio/aac']);
+create policy audio_read on storage.objects for select to authenticated using(bucket_id='reflection-audio' and exists(select 1 from public.memberships m where m.group_id::text=split_part(name,'/',1) and m.user_id=auth.uid()));
+create policy audio_insert on storage.objects for insert to authenticated with check(bucket_id='reflection-audio' and split_part(name,'/',2)=auth.uid()::text and exists(select 1 from public.memberships m where m.group_id::text=split_part(name,'/',1) and m.user_id=auth.uid()));
+commit;

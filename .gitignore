@@ -10,3 +10,12 @@ node_modules/
 __pycache__/
 *.py[cod]
 dist/
+
+# Python checks and package metadata
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Supabase CLI local project/auth artifacts
+supabase/.temp/
+supabase/.branches/

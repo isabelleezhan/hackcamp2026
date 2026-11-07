@@ -1,26 +1,66 @@
+import json
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Loaded from environment variables, or backend/.env locally (see .env.example)."""
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    supabase_url: str = ""
-    supabase_service_role_key: str = ""
-    gemini_api_key: str = ""
+    supabase_url: str = "https://ivjlummkprxwybqqfgor.supabase.co"
+    supabase_anon_key: SecretStr = SecretStr("")
+    supabase_service_role_key: SecretStr = SecretStr("")
+    gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = "gemini-2.5-flash"
-    resend_api_key: str = ""
-    resend_from_email: str = ""
-    n8n_webhook_secret: str = ""
-    app_url: str = "http://localhost:5173"
-    cors_origins: str = "http://localhost:5173"
+    resend_api_key: SecretStr = SecretStr("")
+    email_from: str = Field(
+        default="", validation_alias=AliasChoices("EMAIL_FROM", "RESEND_FROM_EMAIL")
+    )
+    frontend_url: str = Field(
+        default="http://localhost:5173", validation_alias=AliasChoices("FRONTEND_URL", "APP_URL")
+    )
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
+    worker_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("WORKER_SECRET", "N8N_WEBHOOK_SECRET")
+    )
+    ffprobe_path: str = "ffprobe"
 
-    @property
-    def cors_origin_list(self) -> list[str]:
-        return [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            value = json.loads(value) if value.strip().startswith("[") else value.split(",")
+        return [origin.strip().rstrip("/") for origin in value if origin.strip()]
+
+    @field_validator("supabase_url", "frontend_url")
+    @classmethod
+    def valid_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.netloc
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError("Expected an HTTP(S) origin without query or fragment")
+        if parts.username or parts.password:
+            raise ValueError("Credentials must not be embedded in URLs")
+        return value.rstrip("/")
+
+    @field_validator("gemini_model")
+    @classmethod
+    def valid_model(cls, value: str) -> str:
+        import re
+
+        if not re.fullmatch(r"[a-zA-Z0-9.-]+", value):
+            raise ValueError("Invalid model ID")
+        return value
 
 
 @lru_cache

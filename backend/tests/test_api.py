@@ -1,0 +1,244 @@
+import io
+import wave
+
+import httpx
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+from app.providers import Gemini
+from tests.conftest import EDITION, GROUP, OWNER, PERIOD
+
+AUTH = {"Authorization": "Bearer user-session"}
+
+
+def make_client(settings, handler=None, role="organizer", member=True):
+    def respond(request):
+        if request.url.path == "/auth/v1/user":
+            assert request.headers["authorization"] == "Bearer user-session"
+            assert request.headers["apikey"] == "test-public"
+            return httpx.Response(
+                200,
+                json={
+                    "id": OWNER,
+                    "email": "owner@example.invalid",
+                    "role": "authenticated",
+                    "email_confirmed_at": "2026-11-01T00:00:00Z",
+                },
+            )
+        if request.url.path == "/rest/v1/memberships":
+            assert request.headers["authorization"] == "Bearer user-session"
+            return httpx.Response(
+                200, json=[{"group_id": GROUP, "user_id": OWNER, "role": role}] if member else []
+            )
+        if handler:
+            return handler(request)
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    return TestClient(create_app(settings, httpx.MockTransport(respond)))
+
+
+def test_health_and_openapi(settings):
+    with make_client(settings) as client:
+        assert client.get("/health").json() == {"status": "ok"}
+        schema = client.get("/openapi.json").json()
+        assert "/groups/{group_id}/publish" in schema["paths"]
+        assert "/groups/{group_id}/audio" in schema["paths"]
+
+
+def test_unauthenticated_requests_do_not_reach_supabase(settings):
+    with make_client(settings) as client:
+        assert client.get("/me").status_code == 401
+        assert client.get("/groups").status_code == 401
+
+
+def test_outsider_denied_before_content_read(settings):
+    with make_client(settings, member=False) as client:
+        assert client.get(f"/groups/{GROUP}/editions/latest", headers=AUTH).status_code == 404
+
+
+def test_member_cannot_publish(settings):
+    with make_client(settings, role="member") as client:
+        response = client.post(f"/groups/{GROUP}/publish", json={"period_id": PERIOD}, headers=AUTH)
+        assert response.status_code == 403
+
+
+def test_publish_uses_user_session_and_expected_period(settings):
+    def handler(request):
+        import json
+
+        assert request.url.path == "/rest/v1/rpc/close_issue"
+        assert request.headers["authorization"] == "Bearer user-session"
+        assert json.loads(request.content) == {"gid": GROUP, "expected_period_id": PERIOD}
+        return httpx.Response(200, json=None)
+
+    with make_client(settings, handler) as client:
+        result = client.post(f"/groups/{GROUP}/publish", json={"period_id": PERIOD}, headers=AUTH)
+        assert result.status_code == 202
+        assert result.json() == {"edition_id": None, "status": "empty"}
+
+
+def test_identity_spoofing_is_rejected(settings):
+    with make_client(settings) as client:
+        response = client.put(
+            f"/groups/{GROUP}/periods/{PERIOD}/reflection",
+            headers=AUTH,
+            json={"body": "Hello", "user_id": OWNER},
+        )
+        assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"body": "Hello", "status": "submitted"},
+        {"body": "  ", "status": "submitted", "ai_consent": True},
+        {"body": "x" * 2001},
+        {"audio_path": "unverified/path"},
+    ],
+)
+def test_invalid_reflections_rejected_without_writes(settings, payload):
+    with make_client(settings) as client:
+        result = client.put(
+            f"/groups/{GROUP}/periods/{PERIOD}/reflection", json=payload, headers=AUTH
+        )
+        assert result.status_code == 422
+        assert "x" * 2001 not in result.text
+
+
+def test_reflection_write_forces_current_user_and_does_not_persist_consent_field(settings):
+    def handler(request):
+        import json
+
+        assert request.url.path == "/rest/v1/reflections"
+        if request.method == "GET":
+            assert request.url.params["user_id"] == f"eq.{OWNER}"
+            return httpx.Response(200, json=[])
+        data = json.loads(request.content)
+        assert (
+            data["user_id"] == OWNER and data["group_id"] == GROUP and data["period_id"] == PERIOD
+        )
+        assert "ai_consent" not in data
+        return httpx.Response(201, json=[data])
+
+    with make_client(settings, handler) as client:
+        result = client.put(
+            f"/groups/{GROUP}/periods/{PERIOD}/reflection",
+            headers=AUTH,
+            json={"body": "My week", "status": "submitted", "ai_consent": True},
+        )
+        assert result.status_code == 200
+        assert result.json()["body"] == "My week"
+
+
+def test_closed_period_maps_to_conflict_without_exposing_private_error(settings):
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            400,
+            json={"code": "P0001", "message": "Period is closed", "details": "private source data"},
+        )
+
+    with make_client(settings, handler) as client:
+        result = client.put(
+            f"/groups/{GROUP}/periods/{PERIOD}/reflection", headers=AUTH, json={"body": "Draft"}
+        )
+        assert result.status_code == 409
+        assert "private source data" not in result.text
+
+
+def test_latest_filters_to_published_and_omits_internal_columns(settings):
+    def handler(request):
+        assert request.url.params["status"] == "eq.published"
+        assert "lease_token" not in request.url.params["select"]
+        return httpx.Response(200, json=[{"id": EDITION}])
+
+    with make_client(settings, handler) as client:
+        result = client.get(f"/groups/{GROUP}/editions/latest", headers=AUTH)
+        assert result.json()["id"] == EDITION
+
+
+def test_worker_secret_required(settings):
+    with make_client(settings) as client:
+        assert client.post("/internal/tick").status_code == 401
+        assert (
+            client.post("/internal/tick", headers={"X-Worker-Secret": "wrong"}).status_code == 401
+        )
+
+
+def test_audio_path_traversal_rejected(settings):
+    with make_client(settings) as client:
+        result = client.get(
+            f"/groups/{GROUP}/audio-url", params={"path": "../../private"}, headers=AUTH
+        )
+        assert result.status_code == 422
+
+
+def test_transcription_failure_keeps_audio_and_requires_manual_text(settings, monkeypatch):
+    async def fail(*args):
+        raise HTTPException(502, "Provider unavailable")
+
+    monkeypatch.setattr(Gemini, "transcribe", fail)
+
+    def handler(request):
+        assert request.method == "POST" and request.url.path.startswith(
+            "/storage/v1/object/reflection-audio/"
+        )
+        assert request.headers["authorization"] == "Bearer user-session"
+        return httpx.Response(200, json={"Key": "stored"})
+
+    data = io.BytesIO()
+    with wave.open(data, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\0\0" * 8000)
+    with make_client(settings, handler) as client:
+        result = client.post(
+            f"/groups/{GROUP}/audio",
+            headers=AUTH,
+            data={"ai_consent": "true"},
+            files={"file": ("voice.wav", data.getvalue(), "audio/wav")},
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "transcription_failed"
+        assert result.json()["audio_path"].startswith(f"{GROUP}/{OWNER}/")
+
+
+def test_upload_body_limit(settings):
+    with make_client(settings) as client:
+        result = client.post(
+            f"/groups/{GROUP}/audio",
+            headers={**AUTH, "Content-Length": "12000000"},
+            content=b"small",
+        )
+        assert result.status_code == 413
+
+
+def test_me_preserves_frontend_email_contract(settings):
+    def handler(request):
+        assert request.url.path == "/rest/v1/profiles"
+        return httpx.Response(200, json=[{"id": OWNER, "display_name": "Alex"}])
+
+    with make_client(settings, handler) as client:
+        result = client.get("/me", headers=AUTH)
+        assert result.status_code == 200
+        assert result.json() == {
+            "id": OWNER,
+            "display_name": "Alex",
+            "email": "owner@example.invalid",
+        }
+
+
+def test_existing_n8n_header_is_supported(settings):
+    from unittest.mock import AsyncMock
+
+    with make_client(settings) as client:
+        client.app.state.jobs.tick = AsyncMock(
+            return_value={"closed": 0, "generated": 0, "sent": 0, "errors": 0}
+        )
+        result = client.post("/internal/tick", headers={"X-N8N-Secret": "test-worker"})
+        assert result.status_code == 200
+        client.app.state.jobs.tick.assert_awaited_once_with(5)
