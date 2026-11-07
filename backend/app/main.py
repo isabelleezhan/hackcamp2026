@@ -1,7 +1,6 @@
 import hmac
 import re
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import quote
@@ -24,11 +23,11 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from app.auth import Auth0Authenticator
 from app.config import Settings, get_settings
+from app.deps import Identity, current_user, get_store
 from app.jobs import Jobs
 from app.media import MAX_AUDIO_BYTES, MIME_TYPES, inspect_audio
 from app.models import (
@@ -41,9 +40,9 @@ from app.models import (
     ReflectionWrite,
 )
 from app.providers import Gemini, Resend
+from app.routers.audio import router as audio_router
 from app.store import Store
 
-bearer = HTTPBearer(auto_error=False)
 EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
 
 
@@ -87,65 +86,8 @@ class BodyLimitMiddleware:
                 )
 
 
-@dataclass(frozen=True)
-class Identity:
-    id: UUID
-    subject: str
-    token: str
-    email: str = ""
-
-
-def get_store(request: Request) -> Store:
-    return request.app.state.store
-
-
 def get_jobs(request: Request) -> Jobs:
     return request.app.state.jobs
-
-
-async def current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-    store: Annotated[Store, Depends(get_store)],
-    request: Request,
-) -> Identity:
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(401, "Sign in required", headers={"WWW-Authenticate": "Bearer"})
-    auth0_user = await request.app.state.authenticator.authenticate(credentials.credentials)
-    rows = await store.rows("profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}")
-    if not rows:
-        profile_id = uuid4()
-        try:
-            rows = await store.write(
-                "POST",
-                "profiles",
-                {
-                    "id": str(profile_id),
-                    "auth0_subject": auth0_user.subject,
-                    "email": auth0_user.email,
-                    "email_verified": auth0_user.email_verified,
-                    "display_name": auth0_user.name or "Member",
-                },
-                admin=True,
-            )
-        except HTTPException as exc:
-            if exc.status_code != 409:
-                raise
-            rows = await store.rows(
-                "profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}"
-            )
-    elif rows[0].get("email") != auth0_user.email or not rows[0].get("email_verified"):
-        rows = await store.write(
-            "PATCH",
-            "profiles",
-            {"email": auth0_user.email, "email_verified": True},
-            admin=True,
-            id=f"eq.{rows[0]['id']}",
-        )
-    if not rows:
-        raise HTTPException(503, "Unable to provision the authenticated account")
-    return Identity(
-        UUID(rows[0]["id"]), auth0_user.subject, credentials.credentials, auth0_user.email
-    )
 
 
 User = Annotated[Identity, Depends(current_user)]
@@ -195,6 +137,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             yield
 
     app = FastAPI(title="Community Newspaper API", version="0.1.0", lifespan=lifespan)
+    app.include_router(audio_router)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,

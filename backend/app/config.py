@@ -1,5 +1,6 @@
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -7,7 +8,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parents[1] / ".env",
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     supabase_url: str = "https://ivjlummkprxwybqqfgor.supabase.co"
     supabase_anon_key: SecretStr = SecretStr("")
@@ -15,7 +20,9 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_audience: str = ""
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_transcription_model: str = "gemini-3.5-transcribe"
+    gemini_fallback_models: str = "gemini-3.8-flash,gemini-3.5-flash-lite"
     resend_api_key: SecretStr = SecretStr("")
     email_from: str = Field(
         default="", validation_alias=AliasChoices("EMAIL_FROM", "RESEND_FROM_EMAIL")
@@ -64,9 +71,11 @@ class Settings(BaseSettings):
 
     @field_validator("supabase_url", "frontend_url")
     @classmethod
-    def valid_url(cls, value: str) -> str:
+    def valid_url(cls, value: str, info) -> str:
         from urllib.parse import urlsplit
 
+        if info.field_name == "supabase_url" and not value:
+            return ""
         parts = urlsplit(value)
         if (
             parts.scheme not in {"http", "https"}
@@ -79,7 +88,7 @@ class Settings(BaseSettings):
             raise ValueError("Credentials must not be embedded in URLs")
         return value.rstrip("/")
 
-    @field_validator("gemini_model")
+    @field_validator("gemini_model", "gemini_transcription_model")
     @classmethod
     def valid_model(cls, value: str) -> str:
         import re

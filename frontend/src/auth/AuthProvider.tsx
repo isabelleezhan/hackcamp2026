@@ -6,9 +6,10 @@ import { AuthContext, useAuth } from './context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(supabase))
 
   useEffect(() => {
+    if (!supabase) return
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
   const location = useLocation()
+  if (!supabase) return children
   if (loading) return <p className="p-8 text-stone-500">Loading…</p>
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   return children

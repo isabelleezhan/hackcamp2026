@@ -13,10 +13,11 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
 
   const from = (location.state as { from?: string } | null)?.from ?? '/'
-  if (session) return <Navigate to={from} replace />
+  if (!supabase || session) return <Navigate to={from} replace />
 
   async function sendCode(e: FormEvent) {
     e.preventDefault()
+    if (!supabase) return
     setBusy(true)
     setError(null)
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
@@ -27,6 +28,7 @@ export default function Login() {
 
   async function verifyCode(e: FormEvent) {
     e.preventDefault()
+    if (!supabase) return
     setBusy(true)
     setError(null)
     const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' })

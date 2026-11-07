@@ -12,9 +12,9 @@ export class ApiError extends Error {
 
 /** Fetch the backend with the signed-in user's Supabase token attached. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const { data } = await supabase.auth.getSession()
+  const session = supabase ? (await supabase.auth.getSession()).data.session : null
   const headers = new Headers(init.headers)
-  if (data.session) headers.set('Authorization', `Bearer ${data.session.access_token}`)
+  if (session) headers.set('Authorization', `Bearer ${session.access_token}`)
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers })

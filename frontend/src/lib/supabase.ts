@@ -1,11 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-if (!url || !anonKey) {
-  throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend/.env.local')
-}
+const url = import.meta.env.VITE_SUPABASE_URL?.trim()
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
+  || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim()
 
 // Used for auth only. All data goes through the FastAPI backend (RLS blocks direct reads).
-export const supabase = createClient(url, anonKey)
+// Without credentials the audio prototype works without sign-in.
+export const supabase = url && anonKey ? createClient(url, anonKey) : null

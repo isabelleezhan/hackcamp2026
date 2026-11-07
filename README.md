@@ -10,7 +10,7 @@ everyone is and emailed to anyone who wants it.
 
 ## Backend
 
-The FastAPI implementation is in [backend/](backend/README.md). It includes verified Supabase authentication, group membership checks, reflections, reviewed audio transcription, newspaper generation, archives, and retry-safe email delivery.
+The FastAPI implementation is in [backend/](backend/README.md). It includes verified Auth0 authentication, group membership checks, reflections, reviewed audio transcription, newspaper generation, archives, and retry-safe email delivery.
 
 ```sh
 cd backend
@@ -34,9 +34,57 @@ Run backend checks from `backend/`:
 
 ## Supabase
 
-The full, reviewed-source schema is in [supabase/migrations/](supabase/migrations/): `0001_init.sql` and `0002_backend_jobs.sql`. These changes are already present in project `ivjlummkprxwybqqfgor`; do not rerun them against that database. The initial migration replaces the Git scaffold's unused draft schema. See [Supabase notes](supabase/README.md) for migration history reconciliation, verification SQL, and the remaining Auth SMTP setup.
+The reviewed schema is in [supabase/migrations/](supabase/migrations/). Migrations `0001` through `0003` are already present in project `ivjlummkprxwybqqfgor`; do not rerun them. Migration `0004_notes_location.sql` is pending and must be deployed with its matching backend. See [Supabase notes](supabase/README.md) for details.
 
-Email-code sign-in requires a verified custom SMTP sender before Supabase allows the code email templates to be edited. The placeholder template is in `supabase/otp-email.html`. Configure a verified Resend sender separately for edition emails.
+Auth0 owns application sign-in and email verification. Configure a verified Resend sender separately for edition emails.
+
+## Try audio transcription locally (PowerShell)
+
+Install the updated backend dependencies, then start the backend from `backend/`
+so it loads `backend/.env`:
+
+```powershell
+cd backend
+& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+Set `GEMINI_API_KEY` and optionally `GEMINI_TRANSCRIPTION_MODEL` in `backend/.env`. The key stays
+on the backend. Start the frontend in another terminal with `cd frontend` and
+`npm.cmd run dev`. The standalone `/audio/transcribe` endpoint requires a verified Auth0 access token.
+Choose **Choose audio file**, then **Transcribe with
+Gemini**. Use a spoken MP3, WAV, M4A, OGG, or FLAC clip up to 3 minutes and 10 MB.
+The returned transcript is editable; this preview does not save a reflection.
+Audio is validated server-side and sent inline to Gemini, without creating a
+stored Gemini file or persisting audio/transcripts in the app.
+
+The standalone transcription prototype starts with `gemini-3.5-transcribe`. On HTTP 429, 404, or temporary
+server errors (500/502/503/504), it tries `gemini-3.8-flash`, then
+`gemini-3.5-flash-lite`, using the same key. Each model is attempted once per upload;
+the SDK's automatic retries are disabled to avoid repeatedly calling a limited model.
+The general-purpose backups receive a faithful-transcription instruction. Invalid
+requests or credentials (400/401/403), empty transcripts, and invalid uploads do
+not trigger more model calls. No transcript is saved until you choose to use it.
+
+Override the backup order in `backend/.env` and restart the backend:
+
+```dotenv
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-transcribe
+GEMINI_FALLBACK_MODELS=gemini-3.8-flash,gemini-3.5-flash-lite
+```
+
+Set `GEMINI_FALLBACK_MODELS=` to disable backups. Model-specific limits may differ,
+but project-wide quota/spend limits can affect every backup; changing models does
+not guarantee recovery. See Google's [audio guide](https://ai.google.dev/gemini-api/docs/audio)
+and [rate-limit guide](https://ai.google.dev/gemini-api/docs/rate-limits).
+
+Run backend upload/auth checks without making paid Gemini calls:
+
+```powershell
+cd backend
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
 ## Frontend
 
@@ -51,10 +99,9 @@ The backend now accepts Auth0 API access tokens and stores application profiles 
 
 ## Authorization and workers
 
-Interactive database/storage requests use the verified caller's JWT and remain subject to Supabase RLS. Routes also check group membership; only organizers can publish or retry. Service-role access is explicit and limited to server-side publishing/delivery workers.
+FastAPI verifies Auth0 access tokens, then uses the Supabase service role after explicit route-level ownership and membership checks. Only organizers can publish or retry; Auth0 tokens are never sent to Supabase.
 
-Signing in should show "backend sees you as …" on the home page; that confirms auth works across both apps.
-(The login page still uses email codes; switching it to email + password is on the to-do list in AGENTS.md.)
+The frontend login page still uses Supabase email codes and must be migrated to Auth0 Universal Login before end-to-end sign-in works.
 
 `POST /internal/tick` closes due periods and resumes queued or interrupted generation/delivery. Call it frequently from n8n with `X-Worker-Secret`; the scaffold `X-N8N-Secret` header is also supported. Weekly deadlines remain Sunday at 6 p.m. in each group's timezone. See [backend setup](backend/README.md) for configuration, deployment and retry details.
 
