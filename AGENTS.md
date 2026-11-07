@@ -133,6 +133,7 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 ## Planned API (keep it in sync if you change it)
 | Method & path | Who | Purpose |
 |---|---|---|
+| `POST /email/test` (multipart) | localhost only, `ENABLE_EMAIL_TESTING=true` | Manual frontend Resend test with an optional PDF; disabled by default and independent of publishing |
 | `GET /me`, `PATCH /me` | user | profile: display_name, location_mode, city, lat, lng, timezone |
 | `GET /groups`, `POST /groups` | user | list my groups / create (caller becomes organizer, period 1 opens) |
 | `POST /groups/join` `{code}` | user | join by code |

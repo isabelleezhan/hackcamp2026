@@ -24,6 +24,60 @@ The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its ser
 
 `../supabase/migrations/0001_init.sql`, `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql` are applied to project `ivjlummkprxwybqqfgor`. Migration `0003` was verified on November 7, 2026. Do not rerun these migrations on that project.
 
+## Standalone email function (optional PDF attachment)
+
+`app.services.email.send_email` sends one email through Resend and returns its
+provider email ID. It is available for later integration; it is not called by a
+route or publishing worker. Configure `RESEND_API_KEY` and `EMAIL_FROM` (or
+`RESEND_FROM_EMAIL`) in `backend/.env`, using a sender verified in Resend.
+
+From backend Python code:
+
+```python
+from pathlib import Path
+from app.services.email import send_email
+
+async def email_paper():
+    return await send_email(
+        to="reader@example.com",
+        subject="Your weekly newspaper",
+        text="Your newspaper is attached.",
+        pdf_bytes=Path("weekly-paper.pdf").read_bytes(),
+        pdf_filename="weekly-paper.pdf",
+        idempotency_key="weekly-paper/issue-123/recipient-456",
+    )
+```
+
+You can pass PDF bytes directly from a future PDF generator. Omit `pdf_bytes` for
+an ordinary email, and supply `text`, `html`, or both for the body. Keep the same
+idempotency key and content when retrying one logical email; the function does not
+automatically retry. The caller is responsible for email preferences and selecting
+authorized recipients. A returned ID confirms provider acceptance, not inbox delivery.
+Tests use mocked HTTP requests and do not send real emails.
+
+PDFs are Base64 encoded with an `application/pdf` content type. The helper rejects
+non-PDF headers and payloads over 40 MB after encoding. See the
+[Resend send-email reference](https://resend.com/docs/api-reference/emails/send-email).
+
+### Frontend email test form
+
+The home page includes recipient, subject, message, and optional PDF fields with a
+**Send test email** button. The button calls `POST /email/test`; a success message
+shows Resend's accepted email ID. This sends only when you click the button.
+
+For local testing, set `ENABLE_EMAIL_TESTING=true`, `RESEND_API_KEY`, and
+`EMAIL_FROM` in `backend/.env`, then restart the backend. This endpoint accepts
+only localhost requests from configured frontend origins and is disabled by
+default. Keep it disabled in deployed environments. PDF uploads are limited to
+10 MB. Failed requests retain the same idempotency key for retries; editing the
+form or sending again after a success starts a new logical email.
+
+For testing without a verified domain, set
+`EMAIL_FROM=Community Newspaper <onboarding@resend.dev>` and send to the email
+address associated with your Resend account. A Gmail address cannot be used as
+the sender through Resend. For other recipients, verify a domain you own and use
+a sender on that domain. See [Resend's test sender restrictions](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain).
+
 ## Authentication and account routes
 
 Register an Auth0 API using RS256. The frontend signs in with Auth0 Universal Login and requests an access token using that API Identifier as its audience plus `openid profile email`. It sends `Authorization: Bearer <access_token>` to protected endpoints. FastAPI verifies the JWT issuer, audience, signature, expiry and subject against Auth0 JWKS, requires a verified email, then provisions or refreshes the corresponding Postgres profile. Because Auth0 tokens are not Supabase sessions, all database/storage access uses the service role after backend ownership and membership checks.

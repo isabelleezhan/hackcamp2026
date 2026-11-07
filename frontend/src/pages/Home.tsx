@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import AudioTranscription from '../components/AudioTranscription'
+import EmailTest from '../components/EmailTest'
 import { useAuth } from '../auth/context'
 import { api } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -29,6 +30,7 @@ export default function Home() {
         <p className="mt-1 text-sm text-stone-600">{backend}</p>
       </>}
       <AudioTranscription />
+      <EmailTest />
     </main>
   )
 }

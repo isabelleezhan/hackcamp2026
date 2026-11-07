@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     gemini_transcription_model: str = "gemini-3.5-transcribe"
     gemini_fallback_models: str = "gemini-3.8-flash,gemini-3.5-flash-lite"
     resend_api_key: SecretStr = SecretStr("")
+    enable_email_testing: bool = False
     email_from: str = Field(
         default="", validation_alias=AliasChoices("EMAIL_FROM", "RESEND_FROM_EMAIL")
     )

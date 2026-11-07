@@ -41,6 +41,7 @@ from app.models import (
 )
 from app.providers import Gemini, Resend
 from app.routers.audio import router as audio_router
+from app.routers.email import router as email_router
 from app.routers.geocode import router as geocode_router
 from app.services.geocode import ReverseGeocoder
 from app.store import Store
@@ -142,6 +143,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
     app = FastAPI(title="Community Newspaper API", version="0.1.0", lifespan=lifespan)
     app.include_router(audio_router)
     app.include_router(geocode_router)
+    app.include_router(email_router)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
