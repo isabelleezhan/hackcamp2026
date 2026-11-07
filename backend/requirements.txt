@@ -1,0 +1,6 @@
+﻿fastapi[standard]
+pydantic-settings
+supabase
+google-genai
+resend
+python-multipart
