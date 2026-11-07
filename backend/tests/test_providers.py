@@ -134,3 +134,107 @@ def test_story_must_cite_every_note_and_not_invent_datelines(source, newspaper):
     data["member_updates"][0]["dateline"] = "Paris"
     with pytest.raises(ValueError):
         validate_attribution(Newspaper.model_validate(data), [source, second])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Alex said the garden was "finally finished."',
+        "Alex called it “i FINALLY finished my garden”.",
+        "No quotes at all.",
+    ],
+)
+def test_quotes_copied_from_own_notes_are_allowed(source, newspaper, text):
+    data = copy.deepcopy(newspaper)
+    data["member_updates"][0]["text"] = text
+    source = {**source, "body": "I finally finished my garden. It's finally finished."}
+    validate_attribution(Newspaper.model_validate(data), [source])
+
+
+@pytest.mark.parametrize(
+    "field,text",
+    [
+        ("story", 'Alex said it was "the best week of my life".'),
+        ("headline", 'A "life-changing" garden'),
+        ("victory", 'Alex said "I won the lottery".'),
+    ],
+)
+def test_invented_quotes_are_rejected(source, newspaper, field, text):
+    data = copy.deepcopy(newspaper)
+    if field == "story":
+        data["member_updates"][0]["text"] = text
+    elif field == "headline":
+        data["headline"] = text
+    else:
+        data["little_victories"] = [
+            {"headline": "Win", "text": text, "source_reflection_ids": [SOURCE]}
+        ]
+    with pytest.raises(ValueError, match="quotation"):
+        validate_attribution(Newspaper.model_validate(data), [source])
+
+
+async def test_one_corrective_retry_then_success(settings, source, newspaper):
+    bad = copy.deepcopy(newspaper)
+    bad["member_updates"][0]["display_name"] = "Invented Name"
+    answers, prompts = [bad, newspaper], []
+
+    def handle(request):
+        payload = json.loads(request.content)
+        prompts.append([p["text"] for p in payload["contents"][0]["parts"]])
+        answer = answers.pop(0)
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"finishReason": "STOP", "content": {"parts": [{"text": json.dumps(answer)}]}}
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        content = await Gemini(settings, client).newspaper([source])
+    assert content.member_updates[0].display_name == "Alex"
+    assert len(prompts) == 2 and "rejected" in prompts[1][1]
+    assert "contributor name" in prompts[1][1]
+
+
+async def test_gives_up_after_second_invalid_answer(settings, source, newspaper):
+    bad = copy.deepcopy(newspaper)
+    bad["member_updates"][0]["source_reflection_ids"] = [MEMBER]
+
+    def handle(request):
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"finishReason": "STOP", "content": {"parts": [{"text": json.dumps(bad)}]}}
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(ValueError):
+            await Gemini(settings, client).newspaper([source])
+
+
+def test_prompt_length_scales_with_group_size():
+    from app.providers import words_per_update
+
+    assert words_per_update(3) == "90-140"
+    assert words_per_update(6) == "60-100"
+    assert words_per_update(20) == "40-70"
+
+
+def test_gemini_schema_drops_keywords_gemini_rejects():
+    import json as _json
+
+    from app.models import Newspaper, Transcription
+    from app.providers import gemini_schema
+
+    for model in (Newspaper, Transcription):
+        text = _json.dumps(gemini_schema(model))
+        for keyword in ("$ref", "$defs", "maxLength", "minItems", "additionalProperties", "format"):
+            assert f'"{keyword}"' not in text, keyword
+    schema = gemini_schema(Newspaper)
+    story = schema["properties"]["member_updates"]["items"]["properties"]
+    assert {"headline", "text", "source_reflection_ids", "user_id", "dateline"} <= story.keys()

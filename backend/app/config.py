@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_audience: str = ""
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash"
     gemini_transcription_model: str = "gemini-3.5-transcribe"
     gemini_fallback_models: str = "gemini-3.8-flash,gemini-3.5-flash-lite"
     resend_api_key: SecretStr = SecretStr("")
