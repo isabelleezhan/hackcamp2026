@@ -95,13 +95,18 @@ npm install
 npm run dev
 ```
 
-The backend now accepts Auth0 API access tokens and stores application profiles in Supabase Postgres. The existing frontend authentication is intentionally out of scope for this backend-only milestone and still needs a later Auth0 integration.
+The frontend signs in with Auth0 Universal Login (`@auth0/auth0-react`) and sends the Auth0 access token to FastAPI. It no longer talks to Supabase. Set `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID` and `VITE_AUTH0_AUDIENCE` in `frontend/.env.local` (see `frontend/.env.example`). Without them the app runs signed-out, which is enough for `/preview/edition`.
+
+### One-time Auth0 setup
+
+1. **Applications → APIs → Create API.** Identifier = your audience (e.g. `https://api.community-newspaper.example`), signing algorithm RS256. Turn on **Allow Offline Access**. Put the identifier in `AUTH0_AUDIENCE` (backend) and `VITE_AUTH0_AUDIENCE` (frontend), and the tenant domain in `AUTH0_DOMAIN` / `VITE_AUTH0_DOMAIN`.
+2. **Applications → Create Application → Single Page Application.** Copy its Client ID to `VITE_AUTH0_CLIENT_ID`. Add `http://localhost:5173` (and the Vercel URL later) to **Allowed Callback URLs**, **Allowed Logout URLs** and **Allowed Web Origins**. Under Refresh Token Rotation, turn **Rotation** on (keeps people signed in after a reload, including in Safari).
+3. **Authentication → Database → Username-Password-Authentication** must be enabled for that application. Auth0 sends the verification email itself; the backend rejects accounts whose email isn't verified, and the app shows a "Check your email" screen until it is.
 
 ## Authorization and workers
 
 FastAPI verifies Auth0 access tokens, then uses the Supabase service role after explicit route-level ownership and membership checks. Only organizers can publish or retry; Auth0 tokens are never sent to Supabase.
 
-The frontend login page still uses Supabase email codes and must be migrated to Auth0 Universal Login before end-to-end sign-in works.
 
 `POST /internal/tick` closes due periods and resumes queued or interrupted generation/delivery. Call it frequently from n8n with `X-Worker-Secret`; the scaffold `X-N8N-Secret` header is also supported. Weekly deadlines remain Sunday at 6 p.m. in each group's timezone. See [backend setup](backend/README.md) for configuration, deployment and retry details.
 

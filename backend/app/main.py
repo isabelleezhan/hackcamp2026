@@ -39,7 +39,7 @@ from app.models import (
     PublishRequest,
     ReflectionWrite,
 )
-from app.providers import Gemini, Resend
+from app.providers import Gemini, Resend, email_payload
 from app.routers.audio import router as audio_router
 from app.routers.email import router as email_router
 from app.routers.geocode import router as geocode_router
@@ -540,6 +540,29 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         if not rows:
             raise HTTPException(404, "Edition not found")
         return rows[0]
+
+    @app.get("/groups/{group_id}/editions/{edition_id}/email-preview", tags=["Editions"])
+    async def email_preview(group_id: UUID, edition_id: UUID, user: User, store: Database):
+        """The exact edition email this member would receive (subject, HTML and plain text)."""
+        await membership(store, user, group_id)
+        rows = await store.rows(
+            "editions",
+            admin=True,
+            group_id=f"eq.{group_id}",
+            id=f"eq.{edition_id}",
+            status="eq.published",
+            select="id,group_id,issue_number,content",
+        )
+        if not rows:
+            raise HTTPException(404, "No published edition to preview")
+        groups = await store.rows("groups", admin=True, id=f"eq.{group_id}", select="name")
+        payload = email_payload(
+            settings,
+            {"recipient_email": user.email},
+            rows[0],
+            groups[0].get("name") if groups else None,
+        )
+        return {k: payload[k] for k in ("from", "to", "subject", "html", "text")}
 
     @app.get("/groups/{group_id}/editions/{edition_id}/delivery", tags=["Editions"])
     async def delivery_status(group_id: UUID, edition_id: UUID, user: User, store: Database):

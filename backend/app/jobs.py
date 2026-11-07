@@ -70,7 +70,13 @@ class Jobs:
         )
         if not edition:
             return False
-        payload = delivery.get("payload") or email_payload(self.settings, delivery, edition[0])
+        payload = delivery.get("payload")
+        if not payload:
+            groups = await self.store.rows(
+                "groups", admin=True, id=f"eq.{edition[0]['group_id']}", select="name"
+            )
+            name = groups[0].get("name") if groups else None  # never block an email on this
+            payload = email_payload(self.settings, delivery, edition[0], name)
         claims = await self.store.rpc(
             "claim_delivery", {"did": delivery["id"], "envelope": payload}, admin=True
         )

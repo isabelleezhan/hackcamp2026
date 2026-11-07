@@ -238,3 +238,18 @@ def test_gemini_schema_drops_keywords_gemini_rejects():
     schema = gemini_schema(Newspaper)
     story = schema["properties"]["member_updates"]["items"]["properties"]
     assert {"headline", "text", "source_reflection_ids", "user_id", "dateline"} <= story.keys()
+
+
+def test_email_shows_highlights_not_full_stories(settings, newspaper):
+    newspaper["member_updates"][0]["text"] = (
+        "Alex finished the garden on Tuesday. The tomatoes went in last, after a long argument."
+    )
+    newspaper["member_updates"][0]["dateline"] = "Lisbon"
+    edition = {"id": EDITION, "group_id": GROUP, "issue_number": 12, "content": newspaper}
+    payload = email_payload(settings, {"recipient_email": "r@example.invalid"}, edition, "Fam News")
+    assert "Fam News, Issue 12: " in payload["subject"]
+    assert "Alex finished the garden on Tuesday." in payload["html"]
+    assert "long argument" not in payload["html"] and "long argument" not in payload["text"]
+    assert "Alex, Lisbon" in payload["html"]
+    assert "<script" not in payload["html"] and "<style" not in payload["html"]
+    assert "Read the full issue (sign-in required)" in payload["text"]

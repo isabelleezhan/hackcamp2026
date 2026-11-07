@@ -247,24 +247,98 @@ class Gemini:
         return Transcription.model_validate(result).text
 
 
-def email_payload(settings: Settings, delivery: dict, edition: dict) -> dict:
+def _teaser(text: str, limit: int = 170) -> str:
+    """First sentence of a story, so the email shows highlights, not everyone's full notes."""
+    first = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
+    return first if len(first) <= limit else first[: limit - 1].rsplit(" ", 1)[0] + "…"
+
+
+# Email-safe styling: tables and inline styles only (no <style>, no web fonts, no scripts).
+_SERIF = "Georgia, 'Times New Roman', serif"
+_SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+
+
+def email_payload(
+    settings: Settings, delivery: dict, edition: dict, group_name: str | None = None
+) -> dict:
+    """The edition email: highlights plus a sign-in link to the full issue (per the PRD).
+
+    Everything taken from the edition is HTML-escaped. `group_name` falls back to a generic title.
+    """
     content = Newspaper.model_validate(edition["content"])
     group_id, edition_id = UUID(edition["group_id"]), UUID(edition["id"])
     url = f"{settings.frontend_url}/groups/{group_id}/editions/{edition_id}"
-    highlights = "".join(
-        f"<li><strong>{escape(update.display_name)}</strong>: {escape(update.headline)}</li>"
-        for update in content.member_updates
+    paper = group_name or "Your weekly paper"
+    issue = edition.get("issue_number")
+    issue_label = f"Issue {issue}" if issue else "This week's issue"
+    e = escape
+
+    stories = "".join(
+        f"""<tr><td style="padding:16px 0;border-top:1px solid #dcd8cf">
+<div style="font:600 13px {_SANS};color:#6b6b70">{e(u.display_name)}{f", {e(u.dateline)}" if u.dateline else ""}</div>
+<div style="font:bold 19px/1.25 {_SERIF};color:#1c1c1e;margin-top:4px">{e(u.headline)}</div>
+<div style="font:16px/1.55 {_SERIF};color:#3a3a3c;margin-top:6px">{e(_teaser(u.text))}</div>
+</td></tr>"""
+        for u in content.member_updates
     )
+
+    def briefs(title: str, items) -> str:
+        if not items:
+            return ""
+        rows = "".join(
+            f'<li style="margin:0 0 6px"><b>{e(i.headline)}.</b> {e(i.text)}</li>' for i in items
+        )
+        return f"""<tr><td style="padding:16px 0 4px;border-top:1px solid #dcd8cf">
+<div style="font:600 12.5px {_SANS};color:#6b6b70;margin-bottom:6px">{e(title)}</div>
+<ul style="margin:0;padding-left:18px;font:15.5px/1.5 {_SERIF};color:#1c1c1e">{rows}</ul>
+</td></tr>"""
+
+    html = f"""<!doctype html><html><body style="margin:0;padding:0;background:#e9e7e1">
+<div style="display:none;max-height:0;overflow:hidden">{e(content.introduction)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e9e7e1">
+<tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px">
+<tr><td style="background:#1c1c20;border-radius:14px 14px 0 0;padding:18px 22px">
+<div style="font:bold 18px {_SERIF};color:#f5f5f7">{e(paper)}</div>
+<div style="font:13px {_SANS};color:#9a9aa3;margin-top:2px">{e(issue_label)}</div>
+</td></tr>
+<tr><td style="background:#f7f5f0;border-radius:0 0 14px 14px;padding:22px 22px 26px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding-bottom:16px">
+<h1 style="margin:0;font:bold 26px/1.15 {_SERIF};color:#1c1c1e">{e(content.headline)}</h1>
+<p style="margin:10px 0 0;font:17px/1.6 {_SERIF};color:#3a3a3c">{e(content.introduction)}</p>
+</td></tr>
+{stories}
+{briefs("Little victories", content.little_victories)}
+{briefs("Looking ahead", content.looking_ahead)}
+<tr><td align="center" style="padding:22px 0 4px;border-top:1px solid #dcd8cf">
+<a href="{e(url, quote=True)}" style="display:inline-block;background:#0a84ff;color:#ffffff;text-decoration:none;font:600 16px {_SANS};padding:12px 22px;border-radius:999px">Read the full issue</a>
+<div style="font:12.5px {_SANS};color:#6b6b70;margin-top:8px">(sign-in required)</div>
+</td></tr>
+</table></td></tr>
+<tr><td style="padding:14px 8px;font:12px/1.5 {_SANS};color:#6b6b70;text-align:center">
+You get this because you turned on email for {e(paper)}. You can turn it off on your group's page.
+</td></tr>
+</table></td></tr></table></body></html>"""
+
+    text_lines = [paper, issue_label, "", content.headline, "", content.introduction, ""]
+    for u in content.member_updates:
+        dateline = f", {u.dateline}" if u.dateline else ""
+        text_lines += [f"{u.display_name}{dateline}: {u.headline}", f"  {_teaser(u.text)}", ""]
+    for title, items in (
+        ("Little victories", content.little_victories),
+        ("Looking ahead", content.looking_ahead),
+    ):
+        if items:
+            text_lines += [title] + [f"- {i.headline}. {i.text}" for i in items] + [""]
+    text_lines += [f"Read the full issue (sign-in required): {url}"]
+
     return {
         "from": settings.email_from,
         "to": [delivery["recipient_email"]],
-        "subject": f"Your community newspaper: {content.headline}",
-        "html": f"<h1>{escape(content.headline)}</h1><p>{escape(content.introduction)}</p>"
-        f'<ul>{highlights}</ul><p><a href="{escape(url, quote=True)}">Read the full edition</a> '
-        "(sign-in required).</p><p>Manage email preferences on your group's page.</p>",
-        "text": f"{content.headline}\n\n{content.introduction}\n\n"
-        + "\n".join(f"{u.display_name}: {u.headline}" for u in content.member_updates)
-        + f"\n\nRead the full edition (sign-in required): {url}",
+        "subject": f"{paper}, {issue_label}: {content.headline}",
+        "html": html,
+        "text": "\n".join(text_lines),
     }
 
 

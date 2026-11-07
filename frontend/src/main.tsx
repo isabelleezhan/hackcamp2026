@@ -21,7 +21,7 @@ async function start() {
           {error instanceof Error ? error.message : 'The app could not start. Check the browser console.'}
         </p>
         <p className="mt-4 text-sm text-stone-600">
-          Add your Supabase project URL and public key to frontend/.env.local,
+          Check the VITE_AUTH0_* and VITE_API_URL values in frontend/.env.local (see .env.example),
           then restart the frontend with npm run dev. The Gemini key belongs in backend/.env.
         </p>
       </main>,

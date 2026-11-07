@@ -6,6 +6,10 @@ Use it to judge the writing and tune EDITOR_RULES in app/providers.py.
     .venv/bin/python -m scripts.preview_newspaper                     # uses scripts/sample_notes.json
     .venv/bin/python -m scripts.preview_newspaper my_notes.json
     .venv/bin/python -m scripts.preview_newspaper --edition ../frontend/src/features/edition/sample-edition.json
+    .venv/bin/python -m scripts.preview_newspaper --email-from ../frontend/src/features/edition/sample-edition.json
+
+--edition also writes sample-email.json (the edition email) next to the edition file.
+--email-from only rebuilds that email from an existing edition file: no Gemini call.
 
 Needs GEMINI_API_KEY (and optionally GEMINI_MODEL) in backend/.env. Notes are a JSON list of
 edition_sources-shaped rows: reflection_id, user_id, display_name, body, and optional city, recorded_at.
@@ -21,9 +25,19 @@ from pathlib import Path
 import httpx
 
 from app.config import Settings
-from app.providers import Gemini
+from app.providers import Gemini, email_payload
 
 HERE = Path(__file__).parent
+SAMPLE_GROUP = "The Long-Distance Weekly"
+
+
+def write_email(edition: dict, edition_path: Path, settings: Settings) -> None:
+    """Save the edition email next to the edition file, for the frontend's Email preview."""
+    email = email_payload(settings, {"recipient_email": "you@example.com"}, edition, SAMPLE_GROUP)
+    email["from"] = email["from"] or f"{SAMPLE_GROUP} <paper@example.com>"
+    out = edition_path.with_name("sample-email.json")
+    out.write_text(json.dumps(email, indent=2, ensure_ascii=False) + "\n")
+    print(f"Wrote {out}", file=sys.stderr)
 
 
 def print_paper(paper: dict) -> None:
@@ -57,9 +71,15 @@ async def main() -> int:
     parser.add_argument(
         "--edition", type=Path, help="also write an edition object the frontend preview can load"
     )
+    parser.add_argument(
+        "--email-from", type=Path, help="only rebuild sample-email.json from this edition file"
+    )
     args = parser.parse_args()
 
     settings = Settings()
+    if args.email_from:
+        write_email(json.loads(args.email_from.read_text()), args.email_from, settings)
+        return 0
     if not settings.gemini_api_key.get_secret_value():
         print("Set GEMINI_API_KEY in backend/.env first.", file=sys.stderr)
         return 1
@@ -91,6 +111,7 @@ async def main() -> int:
         }
         args.edition.write_text(json.dumps(edition, indent=2, ensure_ascii=False) + "\n")
         print(f"Wrote {args.edition}", file=sys.stderr)
+        write_email(edition, args.edition, settings)
     return 0
 
 

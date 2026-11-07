@@ -432,3 +432,37 @@ def test_ambiguous_join_code_rejected(settings):
         assert (
             client.post("/groups/join", headers=AUTH, json={"code": "OIL12345"}).status_code == 422
         )
+
+
+def test_email_preview_is_the_members_own_email(settings, newspaper):
+    def handler(request):
+        if request.url.path == "/rest/v1/editions":
+            assert request.url.params["status"] == "eq.published"
+            return httpx.Response(
+                200,
+                json=[{"id": EDITION, "group_id": GROUP, "issue_number": 3, "content": newspaper}],
+            )
+        if request.url.path == "/rest/v1/groups":
+            return httpx.Response(200, json=[{"name": "The Long-Distance Weekly"}])
+        raise AssertionError(request.url)
+
+    with make_client(settings, handler) as client:
+        result = client.get(f"/groups/{GROUP}/editions/{EDITION}/email-preview", headers=AUTH)
+    assert result.status_code == 200
+    body = result.json()
+    assert body["to"] == ["owner@example.invalid"]
+    assert body["subject"].startswith("The Long-Distance Weekly, Issue 3: ")
+    assert "Read the full issue" in body["html"]
+
+
+def test_email_preview_hidden_from_outsiders_and_drafts(settings):
+    with make_client(settings, member=False) as client:
+        url = f"/groups/{GROUP}/editions/{EDITION}/email-preview"
+        assert client.get(url, headers=AUTH).status_code == 404
+
+    def unpublished(request):
+        return httpx.Response(200, json=[])
+
+    with make_client(settings, unpublished) as client:
+        url = f"/groups/{GROUP}/editions/{EDITION}/email-preview"
+        assert client.get(url, headers=AUTH).status_code == 404

@@ -1,84 +1,46 @@
-import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router'
 import { useAuth } from '../auth/context'
-import { supabase } from '../lib/supabase'
+import GlassPage, { pillButton } from '../components/GlassPage'
 
+/** Sign-in happens on Auth0's hosted page; this screen sends people there and back. */
 export default function Login() {
-  const { session } = useAuth()
+  const { configured, loading, user, signIn, signUp } = useAuth()
   const location = useLocation()
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
-  const [step, setStep] = useState<'email' | 'code'>('email')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   const from = (location.state as { from?: string } | null)?.from ?? '/'
-  if (!supabase || session) return <Navigate to={from} replace />
 
-  async function sendCode(e: FormEvent) {
-    e.preventDefault()
-    if (!supabase) return
-    setBusy(true)
-    setError(null)
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
-    setBusy(false)
-    if (error) setError(error.message)
-    else setStep('code')
-  }
-
-  async function verifyCode(e: FormEvent) {
-    e.preventDefault()
-    if (!supabase) return
-    setBusy(true)
-    setError(null)
-    const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' })
-    setBusy(false)
-    if (error) setError(error.message)
-    // On success onAuthStateChange sets the session and the <Navigate> above redirects.
-  }
-
-  const input =
-    'w-full rounded-md border border-stone-300 bg-white px-3 py-2 focus:border-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-800/20'
-  const button =
-    'w-full rounded-md bg-ink px-4 py-2 font-medium text-paper hover:bg-stone-700 disabled:opacity-50'
+  if (!configured || user) return <Navigate to={from} replace />
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-sm flex-col justify-center px-4">
-      <h1 className="font-display text-4xl font-black">Community Newspaper</h1>
-      <p className="mt-2 font-serif text-stone-600">Your week, in print.</p>
-
-      {step === 'email' ? (
-        <form onSubmit={sendCode} className="mt-8 space-y-3">
-          <label htmlFor="email" className="block text-sm font-medium">
-            Email
-          </label>
-          <input id="email" type="email" required autoComplete="email" value={email}
-            onChange={(e) => setEmail(e.target.value)} className={input} />
-          <button type="submit" disabled={busy} className={button}>
-            {busy ? 'Sending…' : 'Email me a sign-in code'}
+    <GlassPage>
+      <div className="grid gap-5 py-6">
+        <div>
+          <h1 className="text-[28px] font-extrabold tracking-[-0.02em]">Community Newspaper</h1>
+          <p className="mt-1 text-[15px] text-glass-muted">
+            A few lines from everyone, every week. One paper for all of you on Sunday.
+          </p>
+        </div>
+        <div className="grid gap-2.5 sm:max-w-sm">
+          <button
+            type="button"
+            className={`${pillButton} bg-accent py-3 text-accent-ink`}
+            disabled={loading}
+            onClick={() => signIn(from)}
+          >
+            Sign in
           </button>
-        </form>
-      ) : (
-        <form onSubmit={verifyCode} className="mt-8 space-y-3">
-          <label htmlFor="code" className="block text-sm font-medium">
-            Code sent to {email}
-          </label>
-          <input id="code" inputMode="numeric" autoComplete="one-time-code" required value={code}
-            onChange={(e) => setCode(e.target.value)} className={`${input} tracking-widest`} />
-          <button type="submit" disabled={busy} className={button}>
-            {busy ? 'Checking…' : 'Sign in'}
+          <button
+            type="button"
+            className={`${pillButton} bg-chip py-3`}
+            disabled={loading}
+            onClick={() => signUp(from)}
+          >
+            Create an account
           </button>
-          <button type="button" onClick={() => setStep('email')} className="text-sm text-stone-600 underline">
-            Use a different email
-          </button>
-        </form>
-      )}
-
-      {error && (
-        <p role="alert" className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
+        </div>
+        <p className="text-[13px] text-glass-muted">
+          You'll sign in on a secure Auth0 page and come straight back here.
         </p>
-      )}
-    </main>
+      </div>
+    </GlassPage>
   )
 }

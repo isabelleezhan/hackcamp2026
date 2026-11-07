@@ -25,9 +25,12 @@ round avatar pins, frosted-glass sheet, record button).
 - First sign-in: set a **display name**.
 - **Location:** the app asks to share *approximate* location.
   - Allowed (`location_mode = 'auto'`): read the position via the browser Geolocation API when
-    the app is opened and when a note is saved. **Round to 1 decimal (~10 km) on the device
-    before sending.** The backend reverse-geocodes it to a city name (OpenStreetMap Nominatim,
-    cached; check its usage policy).
+    the app is opened and when a note is saved. Round to **2 decimals (~1 km) on the device**
+    and call `GET /geocode/reverse?lat=&lng=`; it returns `{city, lat, lng}` with lat/lng
+    already rounded to **1 decimal (~10 km)**. Store only that 1-decimal result (`PATCH /me`,
+    or on a note). 1 decimal is too coarse for naming the city (Lisbon rounds into Barreiro),
+    so the lookup uses 2. Backend: `app/services/geocode.py` (OpenStreetMap Nominatim, cached,
+    at most 1 request per second, identifying User-Agent, no personal data).
   - Denied, unsupported or preferred (`'manual'`): the person types a city.
   - **No background tracking.** The location only updates while the app is open.
 - The browser time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) is saved to
@@ -174,9 +177,11 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   `POST …/periods/{pid}/reflections`, `PUT`/`DELETE …/reflections/{id}`, plus
   `GET …/periods/{pid}/note-counts`. The table is still called `reflections`; "notes" in this file
   means the same thing.
-- **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses Supabase
-  Auth and must switch to Auth0. Everything else (groups, notes, publish button,
-  newspaper template, globe, recorder) is still to build.
+- **Frontend:** Auth0 sign-in (`src/auth/`, `@auth0/auth0-react`; `useAuth()` gives user, signIn,
+  signUp, signOut; `RequireAuth` also blocks unverified emails). `api()` attaches the Auth0 access
+  token. The frontend no longer uses Supabase. Built: edition page, archive and preview
+  (`src/features/edition/`), shared `Avatar` and `GlassPage`, Jerry's audio transcription. Still to
+  build: group page and join flow, note composer, publish button, globe home.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current
