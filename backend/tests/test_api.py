@@ -102,6 +102,20 @@ def test_identity_spoofing_is_rejected(settings):
         assert response.status_code == 422
 
 
+def test_reflection_list_is_scoped_to_current_user(settings):
+    def handler(request):
+        assert request.url.path == "/rest/v1/reflections"
+        assert request.url.params["group_id"] == f"eq.{GROUP}"
+        assert request.url.params["period_id"] == f"eq.{PERIOD}"
+        assert request.url.params["user_id"] == f"eq.{OWNER}"
+        return httpx.Response(200, json=[])
+
+    with make_client(settings, handler) as client:
+        response = client.get(f"/groups/{GROUP}/periods/{PERIOD}/reflections", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -405,8 +419,8 @@ def test_join_codes_are_normalized(settings, typed, sent):
     import json
 
     def handler(request):
-        assert request.url.path == "/rest/v1/rpc/join_group"
-        assert json.loads(request.content) == {"invitation_code": sent}
+        assert request.url.path == "/rest/v1/rpc/join_group_for"
+        assert json.loads(request.content) == {"actor_id": OWNER, "invitation_code": sent}
         return httpx.Response(200, json=GROUP)
 
     with make_client(settings, handler) as client:

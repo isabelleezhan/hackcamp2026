@@ -1,6 +1,7 @@
 # Supabase setup
 
-Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql` and `0002_backend_jobs.sql`.
+Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql`,
+`0002_backend_jobs.sql`, and `0003_auth0_accounts.sql`.
 
 ## Pending: `0004_notes_location.sql` (NOT yet applied to the live project)
 
@@ -22,7 +23,7 @@ deploy the matching backend at the same time; the old single-reflection route no
 - `editions.issue_number` (backfilled, then assigned on insert).
 
 Verified on a local Postgres 16 with stubs for Supabase's `auth`/`storage` schemas (0001 → 0002 →
-0003): `tests/verify_schema.sql` (its duplicate-reflection check is now removed),
+0003 → 0004): `tests/verify_schema.sql` (its duplicate-reflection check is now removed),
 `tests/verify_backend_jobs.sql` and the new `tests/verify_notes.sql` all pass. After applying it to
 the live project, run all three there too (they roll back their test data).
 
@@ -40,28 +41,34 @@ Project URL: https://ivjlummkprxwybqqfgor.supabase.co
 - Separate generation/delivery status and attempt/error fields. Unique delivery per edition/recipient.
 - Private `reflection-audio` bucket, 10 MB maximum, audio MIME allowlist. Upload paths: `<group_id>/<user_id>/<unique_filename>`. Only group members can read; only the named contributor can upload. Use new filenames rather than overwriting source audio.
 
-## Auth0 migration pending
+## Auth0 migration applied
 
-`migrations/0003_auth0_accounts.sql` moves application identity from Supabase Auth to Auth0. It preserves internal UUIDs, adds the Auth0 subject, verified email, location and timezone account fields, and changes worker email enrollment to use profiles. Review and apply it once before deploying the Auth0 backend. The API then uses the Supabase service role only after its own ownership/membership checks; Auth0 access tokens are never sent to Supabase.
+`migrations/0003_auth0_accounts.sql` was applied to project `ivjlummkprxwybqqfgor` on November 7, 2026. A read-only verification confirmed the Auth0 subject, verified email and location fields, removal of the Supabase Auth profile foreign key, and the three service-role account/group functions. Do not rerun it. The API uses the Supabase service role only after its own ownership/membership checks; Auth0 access tokens are never sent to Supabase.
 
-## Client contract
+## Backend database contract
 
-Call Supabase RPCs using the signed-in user's session:
+The frontend sends Auth0 access tokens only to FastAPI. After explicit route authorization,
+FastAPI calls Supabase with the service role. Auth0 access tokens are never sent to Supabase.
 
 | RPC | Arguments | Result |
 | --- | --- | --- |
-| create_group | group_name, optional group_timezone | group UUID |
-| join_group | invitation_code | group UUID |
-| set_email_preference | gid, enabled | void |
+| create_group_for | actor_id, group_name, optional group_timezone | group UUID |
+| join_group_for | actor_id, invitation_code | group UUID |
+| set_email_preference_for | actor_id, gid, enabled | void |
+| period_note_counts_for | actor_id, gid, pid | submitted counts by member |
 | close_issue | gid, expected_period_id | edition UUID, or null for empty period |
 
 Build invitation links in the frontend using the group's join_code. Links carry the code to the authenticated join screen; they never grant anonymous reading. Fetch the current period using `closed_at IS NULL`. Include its ID in publishing requests so retries cannot accidentally close the next period.
 
-Members can directly create/update/delete their own reflections while their period is open. The trigger supplies submitted_at and updated_at. Only display_name is client-editable on profiles. Group membership, roles, period metadata, edition content, snapshots, and delivery records cannot be directly modified by clients.
+FastAPI creates, updates, and deletes only the caller's reflections while their period is open.
+The trigger supplies submitted_at and updated_at. Group membership, roles, period metadata,
+edition content, snapshots, and delivery records are not directly modified by clients.
 
 The FastAPI backend must keep the service-role secret server-side. It validates Gemini's structured JSON before saving content; the database checks that content is a JSON object, not the full newspaper schema. Generation workers should atomically claim pending/failed editions, manage stalled-work recovery, and update generation attempts/status. Delivery workers must recheck current membership and explicit email opt-in, claim deliveries atomically, skip sent rows, and use a stable provider idempotency key per edition/user. Database uniqueness alone does not guarantee exactly-once external sending.
 
-Audio duration metadata is constrained to 60 seconds when supplied. The backend must inspect actual file format and duration before sending audio to Gemini. Transcriptions remain drafts until the contributor reviews and submits the text. Use short-lived signed URLs or authenticated downloads. Backend service access handles any needed media cleanup.
+After `0004` is applied, audio duration metadata is constrained to 180 seconds. The backend inspects
+actual file format and duration before sending audio to Gemini. Transcriptions remain drafts until
+the contributor reviews and submits the text. Use short-lived signed URLs or authenticated downloads.
 
 ## Authentication
 

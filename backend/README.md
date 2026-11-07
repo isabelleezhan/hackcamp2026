@@ -22,7 +22,7 @@ API explorer: http://localhost:8000/docs. OpenAPI contract: http://localhost:800
 
 The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its server-side secret, `AUTH0_DOMAIN` to the tenant domain without `https://`, and `AUTH0_AUDIENCE` to the Auth0 API Identifier. Set `GEMINI_API_KEY`, `RESEND_API_KEY`, a verified `EMAIL_FROM`, and an independent random `WORKER_SECRET`. Set `FRONTEND_URL` to the real frontend origin and `CORS_ORIGINS` to a JSON array of allowed origins. Never put server secrets in Vite environment variables or client code. Configuration loads from the working directory's `.env`.
 
-`../supabase/migrations/0001_init.sql` and `0002_backend_jobs.sql` were previously applied to project `ivjlummkprxwybqqfgor`. The new `0003_auth0_accounts.sql` forward migration must be reviewed and applied once before deploying this Auth0 backend. Do not rerun earlier migrations on that project.
+`../supabase/migrations/0001_init.sql`, `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql` are applied to project `ivjlummkprxwybqqfgor`. Migration `0003` was verified on November 7, 2026. Do not rerun these migrations on that project.
 
 ## Authentication and account routes
 

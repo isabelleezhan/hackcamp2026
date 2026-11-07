@@ -249,9 +249,15 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
 
     @app.get("/me/stats", tags=["Accounts"])
     async def account_stats(user: User, store: Database):
-        memberships = await store.rows("memberships", admin=True, user_id=f"eq.{user.id}")
-        reflections = await store.rows("reflections", admin=True, user_id=f"eq.{user.id}")
-        sources = await store.rows("edition_sources", admin=True, user_id=f"eq.{user.id}")
+        memberships = await store.rows(
+            "memberships", admin=True, user_id=f"eq.{user.id}", select="role,email_enabled"
+        )
+        reflections = await store.rows(
+            "reflections", admin=True, user_id=f"eq.{user.id}", select="status"
+        )
+        sources = await store.rows(
+            "edition_sources", admin=True, user_id=f"eq.{user.id}", select="edition_id"
+        )
         return {
             "groups_joined": len(memberships),
             "groups_organized": sum(row.get("role") == "organizer" for row in memberships),
@@ -342,6 +348,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             admin=True,
             group_id=f"eq.{group_id}",
             period_id=f"eq.{period_id}",
+            user_id=f"eq.{user.id}",
             order="updated_at.asc",
         )
 

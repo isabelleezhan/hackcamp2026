@@ -178,8 +178,8 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current
-   assumption, enforced by the `reflection_read` policy in `0003`: only in the published paper.
-2. Can members **play the original voice clips** from the paper? Currently no: `0003`'s
+   assumption, enforced by the `reflection_read` policy in `0004`: only in the published paper.
+2. Can members **play the original voice clips** from the paper? Currently no: `0004`'s
    `audio_read` storage policy allows only the author. If the team says yes, loosen that policy
    and tell users their audio is shared, not just the text.
 3. The globe shows **one group at a time** with a switcher (assumed).
