@@ -37,6 +37,10 @@ class Settings(BaseSettings):
         default=SecretStr(""), validation_alias=AliasChoices("WORKER_SECRET", "N8N_WEBHOOK_SECRET")
     )
     ffprobe_path: str = "ffprobe"
+    # Nominatim requires an identifying User-Agent. Never put personal data here.
+    geocoder_user_agent: str = (
+        "CommunityNewspaper/0.1 (HackCamp 2026; +https://github.com/isabelleezhan/hackcamp2026)"
+    )
 
     @property
     def auth0_issuer(self) -> str:

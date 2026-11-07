@@ -41,6 +41,8 @@ from app.models import (
 )
 from app.providers import Gemini, Resend
 from app.routers.audio import router as audio_router
+from app.routers.geocode import router as geocode_router
+from app.services.geocode import ReverseGeocoder
 from app.store import Store
 
 EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
@@ -131,6 +133,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             app.state.settings = settings
             app.state.store = Store(settings, client)
             app.state.authenticator = authenticator or Auth0Authenticator(settings, client)
+            app.state.geocoder = ReverseGeocoder(settings, client)
             app.state.jobs = Jobs(
                 settings, app.state.store, Gemini(settings, client), Resend(settings, client)
             )
@@ -138,6 +141,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
 
     app = FastAPI(title="Community Newspaper API", version="0.1.0", lifespan=lifespan)
     app.include_router(audio_router)
+    app.include_router(geocode_router)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,

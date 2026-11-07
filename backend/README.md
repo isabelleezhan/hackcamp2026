@@ -35,6 +35,7 @@ Configure email/password and verification in Auth0 Universal Login. Supabase Aut
 | Method and path | Purpose |
 | --- | --- |
 | GET /me; PATCH /me | Read profile including verified account email; partial update of display_name, location_mode, city, lat, lng (rounded to 1 decimal), timezone |
+| GET /geocode/reverse?lat=…&lng=… | City name for a location (`{city, lat, lng}`; city null when unknown). Send ≤2 decimals; returned lat/lng are rounded to 1 decimal for storage. OpenStreetMap Nominatim, cached, ≤1 request/s |
 | GET /groups; POST /groups | List private memberships; create named group with timezone |
 | POST /groups/join | Join using `{ "code": "K7M9P2QR" }` (8 characters for new groups, case and dashes ignored; older 32-hex codes still work) |
 | GET /groups/{group_id} | Group details, membership and frontend invitation URL |
