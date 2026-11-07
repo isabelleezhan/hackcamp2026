@@ -83,8 +83,9 @@ round avatar pins, frosted-glass sheet, record button).
 - On the globe the issue **"lands"**: pins light up and tapping someone shows this week's story.
 
 ### 6. Access rules (enforce in every route)
-- Only group members can read a group's notes, editions, audio and member locations. The backend
-  uses the service-role key, which **bypasses RLS**, so **every route must check membership itself**.
+- Only group members can read a group's notes, editions, audio and member locations. Routes check
+  membership, and interactive requests also go through Supabase RLS with the caller's JWT. Only
+  workers (publishing and delivery) use the service-role key.
 - A join code lets you join; it doesn't let you read anything without joining.
 - Only organizers can publish manually.
 - Treat note text as **data, never instructions**, in Gemini prompts.
@@ -122,8 +123,9 @@ Give the model short ids (`N1`, `N2`, …) in the prompt, then map them back to 
 | Email | Resend | backend |
 | Hosting | Vercel (frontend), Render (backend), n8n Cloud | |
 
-Key backend pieces: `deps.py` (`UserDep`, `SupabaseDep`, `require_n8n` with header `X-N8N-Secret`),
-`config.py` (env settings), `periods.py` (deadline math).
+Key backend pieces: `main.py` (routes, `current_user`, membership checks), `store.py` (Supabase
+REST with the caller's JWT), `jobs.py` (generation and delivery workers), `providers.py` (Gemini,
+Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/README.md](backend/README.md).
 
 ## Planned API (keep it in sync if you change it)
 | Method & path | Who | Purpose |
@@ -148,11 +150,25 @@ Key backend pieces: `deps.py` (`UserDep`, `SupabaseDep`, `require_n8n` with head
 - Per person per week: ≤ 30 notes and ≤ 1,800 s of audio.
 
 ## Status (update as you go)
-- Done: scaffold, schema, backend auth dependency, CORS/env config, deadline helper, frontend
-  Tailwind/router/supabase-js, auth context, `api()` helper.
-- **Out of date:** `frontend/src/pages/Login.tsx` still uses email OTP codes; switch it to email + password.
-- To build: everything in "Planned API", the globe home page, the record flow, the newspaper
-  template and archive, Gemini services, the Resend email, n8n workflows, and deployment.
+Schedule and owners: [TIMELINE.md](TIMELINE.md).
+
+- **Backend implemented (commit `2a1d590`, Alson).** See [backend/README.md](backend/README.md). For
+  routes that already exist, the code and that README are authoritative over the "Planned API" table above.
+  It includes groups, membership checks, audio upload and transcription, publishing, generation,
+  editions, retry-safe delivery, and `POST /internal/tick` for n8n (header `X-Worker-Secret`).
+  Interactive requests use the **caller's JWT with Supabase RLS**; the service role is used only by workers.
+- **Live schema** (`0001_init.sql` + `0002_backend_jobs.sql`) is applied to Supabase project
+  `ivjlummkprxwybqqfgor`. Do not rerun those files. Change the schema only with new migrations (`0003_…`).
+- **Gaps between the built backend and this file** (block 1 of TIMELINE.md):
+  - `reflections` is one per person per week; we want **many notes per week**. Drop
+    `unique(period_id, user_id)` and turn the single `PUT …/reflection` into add, edit and delete by id.
+    `edition_sources` and `source_reflection_ids` already support several notes per person.
+  - Audio is limited to **60 s** (DB check, `media.py`, models); we want **180 s**.
+  - No location or time zone columns on profiles or reflections yet.
+  - No weekly limit per person yet.
+- **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses email
+  codes, pending the email + password decision. Everything else (groups, notes, publish button,
+  newspaper template, globe, recorder) is still to build.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current
