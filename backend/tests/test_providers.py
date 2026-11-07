@@ -115,3 +115,22 @@ async def test_resend_retries_use_stable_idempotency_key(settings):
         await provider.send(DELIVERY, {"to": ["reader@example.invalid"]})
         await provider.send(DELIVERY, {"to": ["reader@example.invalid"]})
     assert keys == [f"edition/{DELIVERY}"] * 2
+
+
+def test_one_story_can_cite_several_notes_and_use_a_real_dateline(source, newspaper):
+    second = {**source, "reflection_id": MEMBER, "body": "Then I planted tulips.", "city": "Lisbon"}
+    data = copy.deepcopy(newspaper)
+    data["member_updates"][0]["source_reflection_ids"] = [SOURCE, MEMBER]
+    data["member_updates"][0]["dateline"] = "Lisbon"
+    validate_attribution(Newspaper.model_validate(data), [source, second])
+
+
+def test_story_must_cite_every_note_and_not_invent_datelines(source, newspaper):
+    second = {**source, "reflection_id": MEMBER, "body": "Then I planted tulips.", "city": "Lisbon"}
+    with pytest.raises(ValueError):  # second note not cited
+        validate_attribution(Newspaper.model_validate(newspaper), [source, second])
+    data = copy.deepcopy(newspaper)
+    data["member_updates"][0]["source_reflection_ids"] = [SOURCE, MEMBER]
+    data["member_updates"][0]["dateline"] = "Paris"
+    with pytest.raises(ValueError):
+        validate_attribution(Newspaper.model_validate(data), [source, second])

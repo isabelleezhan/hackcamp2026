@@ -159,21 +159,24 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   Interactive requests use the **caller's JWT with Supabase RLS**; the service role is used only by workers.
 - **Live schema** (`0001_init.sql` + `0002_backend_jobs.sql`) is applied to Supabase project
   `ivjlummkprxwybqqfgor`. Do not rerun those files. Change the schema only with new migrations (`0003_…`).
-- **Gaps between the built backend and this file** (block 1 of TIMELINE.md):
-  - `reflections` is one per person per week; we want **many notes per week**. Drop
-    `unique(period_id, user_id)` and turn the single `PUT …/reflection` into add, edit and delete by id.
-    `edition_sources` and `source_reflection_ids` already support several notes per person.
-  - Audio is limited to **60 s** (DB check, `media.py`, models); we want **180 s**.
-  - No location or time zone columns on profiles or reflections yet.
-  - No weekly limit per person yet.
+- **`0003_notes_location.sql` is written and tested locally but NOT yet applied to the live
+  project.** With it, the backend now supports many notes per week, 180 s voice notes, approximate
+  location and time zone, datelines, weekly limits, notes private until published, owner-only voice
+  clips, 8-character join codes and issue numbers. Details: [supabase/README.md](supabase/README.md).
+  Apply it and deploy the matching backend together. Note routes are now
+  `POST …/periods/{pid}/reflections`, `PUT`/`DELETE …/reflections/{id}`, plus
+  `GET …/periods/{pid}/note-counts`. The table is still called `reflections`; "notes" in this file
+  means the same thing.
 - **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses email
   codes, pending the email + password decision. Everything else (groups, notes, publish button,
   newspaper template, globe, recorder) is still to build.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current
-   assumption: only in the published paper.
-2. Can members **play the original voice clips** from the paper? If yes, tell users their audio is shared, not just the text.
+   assumption, enforced by the `reflection_read` policy in `0003`: only in the published paper.
+2. Can members **play the original voice clips** from the paper? Currently no: `0003`'s
+   `audio_read` storage policy allows only the author. If the team says yes, loosen that policy
+   and tell users their audio is shared, not just the text.
 3. The globe shows **one group at a time** with a switcher (assumed).
 
 ## Scope priority

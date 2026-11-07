@@ -1,6 +1,29 @@
 # Supabase setup
 
-Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026.
+Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql` and `0002_backend_jobs.sql`.
+
+## Pending: `0003_notes_location.sql` (NOT yet applied to the live project)
+
+Aligns the schema with [AGENTS.md](../AGENTS.md). Apply it once, in the dashboard SQL editor, and
+deploy the matching backend at the same time; the old single-reflection route no longer exists.
+
+- Many notes per person per week (the `unique(period_id, user_id)` rule is dropped).
+- Voice notes up to 180 s; transcripts of voice notes up to 4,000 characters (typed: 2,000).
+- `profiles`: `location_mode`, `city`, `lat`, `lng`, `location_updated_at`, `timezone`.
+  `reflections`: `recorded_at` (set by the database), `city`, `lat`, `lng`. Coordinates must be
+  rounded to 1 decimal (~10 km); finer values are rejected.
+- `edition_sources` gets `city` and `recorded_at`, filled by trigger, for datelines; `close_issue()` is unchanged.
+- Weekly limit per person: 30 notes and 1,800 s of audio (trigger errors `Weekly note limit reached` / `Weekly audio limit reached`).
+- Notes are readable only by their author until the week closes; everyone reads the snapshot
+  afterwards. `period_note_counts(gid, pid)` returns counts only, for the globe.
+- Voice clips (storage) are readable only by their author.
+- New groups get 8-character join codes without 0/O/1/I/L; existing 32-hex codes keep working.
+- `editions.issue_number` (backfilled, then assigned on insert).
+
+Verified on a local Postgres 16 with stubs for Supabase's `auth`/`storage` schemas (0001 → 0002 →
+0003): `tests/verify_schema.sql` (its duplicate-reflection check is now removed),
+`tests/verify_backend_jobs.sql` and the new `tests/verify_notes.sql` all pass. After applying it to
+the live project, run all three there too (they roll back their test data).
 
 Project URL: https://ivjlummkprxwybqqfgor.supabase.co
 

@@ -32,18 +32,20 @@ The existing SMTP/template blocker still applies to email-code sign-in. Backend 
 
 | Method and path | Purpose |
 | --- | --- |
-| GET /me; PATCH /me | Read profile including verified account email; update display_name |
+| GET /me; PATCH /me | Read profile including verified account email; partial update of display_name, location_mode, city, lat, lng (rounded to 1 decimal), timezone |
 | GET /groups; POST /groups | List private memberships; create named group with timezone |
-| POST /groups/join | Join using `{ "code": "32-character invitation code" }` |
+| POST /groups/join | Join using `{ "code": "K7M9P2QR" }` (8 characters for new groups, case and dashes ignored; older 32-hex codes still work) |
 | GET /groups/{group_id} | Group details, membership and frontend invitation URL |
-| GET /groups/{group_id}/members | Group member display names and roles |
+| GET /groups/{group_id}/members | Members' display names, roles, city, rounded lat/lng, timezone, location_updated_at |
 | PUT /groups/{group_id}/email-preference | Set `{ "enabled": true }` (off by default) |
 | GET /groups/{group_id}/periods/current | Open submission period and deadline |
-| GET /groups/{group_id}/periods/{period_id}/reflections | Submitted reflections and the caller's drafts |
-| PUT /groups/{group_id}/periods/{period_id}/reflection | Create or replace caller's reflection |
-| DELETE /groups/{group_id}/periods/{period_id}/reflection | Remove caller's open-period reflection |
+| GET /groups/{group_id}/periods/{period_id}/reflections | The caller's own notes for that week (others' notes are only visible in the published edition) |
+| GET /groups/{group_id}/periods/{period_id}/note-counts | Submitted note count and audio seconds per member (no content), for the globe |
+| POST /groups/{group_id}/periods/{period_id}/reflections | Add a note; many per week (limit 30 notes / 30 minutes of audio per person) |
+| PUT /groups/{group_id}/reflections/{reflection_id} | Replace one of the caller's notes while its week is open |
+| DELETE /groups/{group_id}/reflections/{reflection_id} | Delete one of the caller's notes while its week is open |
 | POST /groups/{group_id}/audio | Validate/upload/transcribe multipart audio, returning reviewable text |
-| GET /groups/{group_id}/audio-url?path=... | Member-only audio link expiring in 60 seconds |
+| GET /groups/{group_id}/audio-url?path=... | Link to the caller's own voice clip, expiring in 60 seconds |
 | POST /groups/{group_id}/publish | Organizer closes explicit period and queues publishing |
 | POST /groups/{group_id}/editions/{edition_id}/retry | Organizer requests processing; respects leases/backoff |
 | GET /groups/{group_id}/editions | Paginated archive plus generation states (limit, offset) |
@@ -55,10 +57,10 @@ The existing SMTP/template blocker still applies to email-code sign-in. Backend 
 Example final reflection body:
 
 ```json
-{"body":"We finished planting the garden.","status":"submitted","ai_consent":true}
+{"body":"We finished planting the garden.","status":"submitted","ai_consent":true,"city":"Lisbon","lat":38.7,"lng":-9.1}
 ```
 
-Use `status: "draft"` while editing. Explain group sharing and AI processing before requesting consent. Audio uploads require multipart fields `file` and `ai_consent=true`. The API checks actual file format, audio-only streams, 10 MB maximum and 60-second duration before uploading or contacting Gemini. It returns an audio reference and `review_required` transcript; it never auto-submits speech. If transcription fails it returns `transcription_failed` with the saved audio reference so the person can enter text manually. Include that reference and duration when saving reviewed text; the API rechecks the stored audio rather than trusting client-supplied duration. Text-only submissions work without Gemini or FFmpeg.
+Use `status: "draft"` while editing. Explain group sharing and AI processing before requesting consent. Audio uploads require multipart fields `file` and `ai_consent=true`. The API checks actual file format, audio-only streams, 10 MB maximum and 180-second duration before uploading or contacting Gemini. It returns an audio reference and `review_required` transcript; it never auto-submits speech. If transcription fails it returns `transcription_failed` with the saved audio reference so the person can enter text manually. Include that reference and duration when saving reviewed text; the API rechecks the stored audio rather than trusting client-supplied duration. Text-only submissions work without Gemini or FFmpeg. Typed notes are limited to 2,000 characters; voice transcripts to 4,000. `recorded_at` is set by the database. Going over a weekly limit returns 429.
 
 Publishing body: `{ "period_id": "the-current-period-UUID" }`. Keep that same ID when retrying a request. The response is `202` with an edition ID and `queued`, or null and `empty`. Poll the edition endpoint for pending/generating/published/failed. Database closure atomically freezes submitted text and contributor names, opens the next period, and prevents duplicate editions. A background task starts processing immediately, while the scheduled endpoint provides recovery after server restarts.
 

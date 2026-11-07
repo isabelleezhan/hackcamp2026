@@ -12,7 +12,7 @@ update test_context t set pid=p.id,deadline=p.deadline_at from public.issue_peri
 select pg_temp.assert_ok((select count(*)=1 from public.groups),'organizer sees group');
 select pg_temp.assert_ok((select role='organizer' and not email_enabled from public.memberships),'organizer role and opt-in default');
 insert into public.reflections(group_id,period_id,user_id,body,status) select gid,pid,owner_id,'A small weekly accomplishment.','submitted' from test_context;
-do $$ begin begin insert into public.reflections(group_id,period_id,user_id,body,status) select gid,pid,owner_id,'Duplicate','submitted' from test_context; raise exception 'FAILED duplicate accepted'; exception when unique_violation then null; end; end $$;
+-- 0003 allows many reflections per person per week; see verify_notes.sql.
 select set_config('request.jwt.claim.sub',member_id::text,true) from test_context;
 select pg_temp.assert_ok((select count(*)=0 from public.groups),'nonmember cannot read group');
 select public.join_group(code) from test_context;
@@ -44,4 +44,4 @@ select pg_temp.assert_ok((select count(*)=8 from pg_class c join pg_namespace n 
 select pg_temp.assert_ok((select not public and file_size_limit=10485760 from storage.buckets where id='reflection-audio'),'audio bucket private and limited to 10 MB');
 select pg_temp.assert_ok((public.next_weekly_deadline('America/Vancouver','2026-11-07 20:00Z') at time zone 'America/Vancouver')='2026-11-08 18:00'::timestamp,'Sunday 6pm Vancouver deadline');
 rollback;
-select 'PASS: membership isolation, roles, opt-in, unique reflections, snapshots, idempotent closure, edit lock, RLS, private storage and timezone. Test data rolled back.' as verification;
+select 'PASS: membership isolation, roles, opt-in, snapshots, idempotent closure, edit lock, RLS, private storage and timezone. Test data rolled back.' as verification;
