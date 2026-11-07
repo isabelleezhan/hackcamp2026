@@ -1,6 +1,7 @@
-﻿fastapi[standard]
-pydantic-settings
-supabase
-google-genai
-resend
-python-multipart
+fastapi[standard]==0.162.2
+pydantic-settings==2.16.2
+supabase==2.34.1
+google-genai==3.0.0
+resend==2.52.0
+python-multipart==0.0.33
+tzdata
