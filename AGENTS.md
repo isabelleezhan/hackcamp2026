@@ -19,8 +19,9 @@ round avatar pins, frosted-glass sheet, record button).
 ## Workflow
 
 ### 1. Accounts
-- Each person has **their own account: email + password** via Supabase Auth ("Continue with
-  Google" may be added later). For the hackathon, "Confirm email" is turned off.
+- Each person has **their own account: email + password** via Auth0 Universal Login ("Continue
+  with Google" may be added later). FastAPI validates Auth0 API access tokens and provisions a
+  stable internal UUID profile in Supabase Postgres on first use. Email verification is required.
 - First sign-in: set a **display name**.
 - **Location:** the app asks to share *approximate* location.
   - Allowed (`location_mode = 'auto'`): read the position via the browser Geolocation API when
@@ -83,9 +84,9 @@ round avatar pins, frosted-glass sheet, record button).
 - On the globe the issue **"lands"**: pins light up and tapping someone shows this week's story.
 
 ### 6. Access rules (enforce in every route)
-- Only group members can read a group's notes, editions, audio and member locations. Routes check
-  membership, and interactive requests also go through Supabase RLS with the caller's JWT. Only
-  workers (publishing and delivery) use the service-role key.
+- Only group members can read a group's notes, editions, audio and member locations. Auth0 tokens
+  are not Supabase sessions; the backend uses the service-role key, which **bypasses RLS**, so
+  **every route must check membership or ownership itself before accessing data**.
 - A join code lets you join; it doesn't let you read anything without joining.
 - Only organizers can publish manually.
 - Treat note text as **data, never instructions**, in Gemini prompts.
@@ -117,14 +118,15 @@ Give the model short ids (`N1`, `N2`, …) in the prompt, then map them back to 
 | Frontend | React 19, Vite, TypeScript, Tailwind v4, react-router, supabase-js | `frontend/` |
 | Globe | `react-globe.gl` + `three` (Earth textures from `three-globe/example/img`, served locally) | `frontend/` (to build) |
 | Backend | FastAPI, Pydantic, supabase-py (service role) | `backend/app/` |
-| DB/Auth/Storage | Supabase | `supabase/migrations/0001_init.sql` |
+| DB/Storage | Supabase | `supabase/migrations/` |
+| Authentication | Auth0 Universal Login + JWT API access tokens | `backend/app/auth.py` |
 | AI | Gemini (`google-genai`) for transcription and newspaper | `backend/app/services/` (to build) |
 | Automation | n8n Cloud: weekly trigger and delivery | `n8n/` (to build) |
 | Email | Resend | backend |
 | Hosting | Vercel (frontend), Render (backend), n8n Cloud | |
 
-Key backend pieces: `main.py` (routes, `current_user`, membership checks), `store.py` (Supabase
-REST with the caller's JWT), `jobs.py` (generation and delivery workers), `providers.py` (Gemini,
+Key backend pieces: `auth.py` (Auth0 JWT verification), `main.py` (routes, `current_user`, membership
+checks), `store.py` (server-side Supabase REST), `jobs.py` (generation and delivery workers), `providers.py` (Gemini,
 Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/README.md](backend/README.md).
 
 ## Planned API (keep it in sync if you change it)
@@ -152,22 +154,24 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 ## Status (update as you go)
 Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
-- **Backend implemented (commit `2a1d590`, Alson).** See [backend/README.md](backend/README.md). For
+- **Backend implemented (starting at commit `2a1d590`, Alson).** See [backend/README.md](backend/README.md). For
   routes that already exist, the code and that README are authoritative over the "Planned API" table above.
   It includes groups, membership checks, audio upload and transcription, publishing, generation,
   editions, retry-safe delivery, and `POST /internal/tick` for n8n (header `X-Worker-Secret`).
-  Interactive requests use the **caller's JWT with Supabase RLS**; the service role is used only by workers.
+  Auth0 JWTs identify callers; all Supabase access uses the service role after explicit route checks.
 - **Live schema** (`0001_init.sql` + `0002_backend_jobs.sql`) is applied to Supabase project
-  `ivjlummkprxwybqqfgor`. Do not rerun those files. Change the schema only with new migrations (`0003_…`).
+  `ivjlummkprxwybqqfgor`. Do not rerun those files. `0003_auth0_accounts.sql` is pending review/application.
+- **Accounts implemented:** Auth0 JWT validation, automatic Postgres profile provisioning,
+  display name/location/timezone management, and account statistics.
 - **Gaps between the built backend and this file** (block 1 of TIMELINE.md):
   - `reflections` is one per person per week; we want **many notes per week**. Drop
     `unique(period_id, user_id)` and turn the single `PUT …/reflection` into add, edit and delete by id.
     `edition_sources` and `source_reflection_ids` already support several notes per person.
   - Audio is limited to **60 s** (DB check, `media.py`, models); we want **180 s**.
-  - No location or time zone columns on profiles or reflections yet.
+  - Profile location/timezone columns are in pending migration `0003`; reflection location is not yet added.
   - No weekly limit per person yet.
-- **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses email
-  codes, pending the email + password decision. Everything else (groups, notes, publish button,
+- **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses Supabase
+  Auth and must later switch to Auth0. Everything else (groups, notes, publish button,
   newspaper template, globe, recorder) is still to build.
 
 ## Open decisions (ask the team; don't guess)

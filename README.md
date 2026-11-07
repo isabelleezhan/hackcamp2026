@@ -47,7 +47,7 @@ npm install
 npm run dev
 ```
 
-The existing frontend uses Supabase for sign-in and sends its access token to FastAPI. `/me` retains the email field expected by the login smoke test.
+The backend now accepts Auth0 API access tokens and stores application profiles in Supabase Postgres. The existing frontend authentication is intentionally out of scope for this backend-only milestone and still needs a later Auth0 integration.
 
 ## Authorization and workers
 

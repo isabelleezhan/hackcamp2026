@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.auth import Auth0Identity
 from app.main import create_app
 from app.providers import Gemini
 from tests.conftest import EDITION, GROUP, OWNER, PERIOD
@@ -14,21 +15,31 @@ AUTH = {"Authorization": "Bearer user-session"}
 
 
 def make_client(settings, handler=None, role="organizer", member=True):
+    class FakeAuthenticator:
+        async def authenticate(self, token):
+            assert token == "user-session"
+            return Auth0Identity("auth0|owner", "owner@example.invalid", True, "Alex")
+
     def respond(request):
-        if request.url.path == "/auth/v1/user":
-            assert request.headers["authorization"] == "Bearer user-session"
-            assert request.headers["apikey"] == "test-public"
+        if (
+            request.url.path == "/rest/v1/profiles"
+            and request.url.params.get("auth0_subject") == "eq.auth0|owner"
+        ):
+            assert request.headers["authorization"] == "Bearer test-service"
             return httpx.Response(
                 200,
-                json={
-                    "id": OWNER,
-                    "email": "owner@example.invalid",
-                    "role": "authenticated",
-                    "email_confirmed_at": "2026-11-01T00:00:00Z",
-                },
+                json=[
+                    {
+                        "id": OWNER,
+                        "auth0_subject": "auth0|owner",
+                        "email": "owner@example.invalid",
+                        "email_verified": True,
+                        "display_name": "Alex",
+                    }
+                ],
             )
         if request.url.path == "/rest/v1/memberships":
-            assert request.headers["authorization"] == "Bearer user-session"
+            assert request.headers["authorization"] == "Bearer test-service"
             return httpx.Response(
                 200, json=[{"group_id": GROUP, "user_id": OWNER, "role": role}] if member else []
             )
@@ -36,7 +47,9 @@ def make_client(settings, handler=None, role="organizer", member=True):
             return handler(request)
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    return TestClient(create_app(settings, httpx.MockTransport(respond)))
+    return TestClient(
+        create_app(settings, httpx.MockTransport(respond), authenticator=FakeAuthenticator())
+    )
 
 
 def test_health_and_openapi(settings):
@@ -64,12 +77,12 @@ def test_member_cannot_publish(settings):
         assert response.status_code == 403
 
 
-def test_publish_uses_user_session_and_expected_period(settings):
+def test_publish_uses_service_role_after_membership_check_and_expected_period(settings):
     def handler(request):
         import json
 
         assert request.url.path == "/rest/v1/rpc/close_issue"
-        assert request.headers["authorization"] == "Bearer user-session"
+        assert request.headers["authorization"] == "Bearer test-service"
         assert json.loads(request.content) == {"gid": GROUP, "expected_period_id": PERIOD}
         return httpx.Response(200, json=None)
 
@@ -186,7 +199,7 @@ def test_transcription_failure_keeps_audio_and_requires_manual_text(settings, mo
         assert request.method == "POST" and request.url.path.startswith(
             "/storage/v1/object/reflection-audio/"
         )
-        assert request.headers["authorization"] == "Bearer user-session"
+        assert request.headers["authorization"] == "Bearer test-service"
         return httpx.Response(200, json={"Key": "stored"})
 
     data = io.BytesIO()
@@ -230,6 +243,51 @@ def test_me_preserves_frontend_email_contract(settings):
             "display_name": "Alex",
             "email": "owner@example.invalid",
         }
+
+
+def test_profile_update_rejects_precise_coordinates(settings):
+    with make_client(settings) as client:
+        result = client.patch(
+            "/me",
+            headers=AUTH,
+            json={"location_mode": "auto", "city": "Vancouver", "lat": 49.2827, "lng": -123.1207},
+        )
+    assert result.status_code == 422
+
+
+def test_account_stats_are_scoped_to_current_user(settings):
+    def handler(request):
+        if request.url.path == "/rest/v1/reflections":
+            assert request.url.params["user_id"] == f"eq.{OWNER}"
+            return httpx.Response(200, json=[{"status": "submitted"}, {"status": "draft"}])
+        if request.url.path == "/rest/v1/edition_sources":
+            assert request.url.params["user_id"] == f"eq.{OWNER}"
+            return httpx.Response(200, json=[{"edition_id": EDITION}])
+        raise AssertionError(request.url)
+
+    with make_client(settings, handler) as client:
+        result = client.get("/me/stats", headers=AUTH)
+    assert result.status_code == 200
+    assert result.json() == {
+        "groups_joined": 1,
+        "groups_organized": 1,
+        "email_subscriptions": 0,
+        "reflections_total": 2,
+        "reflections_submitted": 1,
+        "editions_contributed_to": 1,
+    }
+
+
+def test_group_list_never_returns_nonmember_groups(settings):
+    def handler(request):
+        assert request.url.path == "/rest/v1/groups"
+        assert request.url.params["id"] == f"in.({GROUP})"
+        return httpx.Response(200, json=[{"id": GROUP, "name": "Family"}])
+
+    with make_client(settings, handler) as client:
+        result = client.get("/groups", headers=AUTH)
+    assert result.status_code == 200
+    assert result.json()[0]["membership"]["user_id"] == OWNER
 
 
 def test_existing_n8n_header_is_supported(settings):

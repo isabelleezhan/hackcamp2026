@@ -7,7 +7,7 @@ from app.config import Settings
 
 
 class Store:
-    """Use the user's verified JWT for every interactive database/storage request."""
+    """Supabase REST/storage client. Auth0-backed routes use admin access after authorization."""
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
         self.settings = settings

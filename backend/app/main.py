@@ -2,6 +2,7 @@ import hmac
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID, uuid4
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
+from app.auth import Auth0Authenticator
 from app.config import Settings, get_settings
 from app.jobs import Jobs
 from app.media import MAX_AUDIO_BYTES, MIME_TYPES, inspect_audio
@@ -88,6 +90,7 @@ class BodyLimitMiddleware:
 @dataclass(frozen=True)
 class Identity:
     id: UUID
+    subject: str
     token: str
     email: str = ""
 
@@ -103,20 +106,46 @@ def get_jobs(request: Request) -> Jobs:
 async def current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     store: Annotated[Store, Depends(get_store)],
+    request: Request,
 ) -> Identity:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(401, "Sign in required", headers={"WWW-Authenticate": "Bearer"})
-    user = await store.request("GET", "/auth/v1/user", token=credentials.credentials)
-    try:
-        if (
-            user.get("is_anonymous")
-            or user.get("role") != "authenticated"
-            or not user.get("email_confirmed_at")
-        ):
-            raise ValueError("Email authentication required")
-        return Identity(UUID(user["id"]), credentials.credentials, user.get("email") or "")
-    except (KeyError, ValueError, TypeError) as exc:
-        raise HTTPException(401, "A verified email account is required") from exc
+    auth0_user = await request.app.state.authenticator.authenticate(credentials.credentials)
+    rows = await store.rows("profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}")
+    if not rows:
+        profile_id = uuid4()
+        try:
+            rows = await store.write(
+                "POST",
+                "profiles",
+                {
+                    "id": str(profile_id),
+                    "auth0_subject": auth0_user.subject,
+                    "email": auth0_user.email,
+                    "email_verified": auth0_user.email_verified,
+                    "display_name": auth0_user.name or "Member",
+                },
+                admin=True,
+            )
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            rows = await store.rows(
+                "profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}"
+            )
+    elif rows[0].get("email") != auth0_user.email or not rows[0].get("email_verified"):
+        rows = await store.write(
+            "PATCH",
+            "profiles",
+            {"email": auth0_user.email, "email_verified": True},
+            admin=True,
+            id=f"eq.{rows[0]['id']}",
+        )
+    if not rows:
+        raise HTTPException(503, "Unable to provision the authenticated account")
+    return Identity(
+        UUID(rows[0]["id"]), auth0_user.subject, credentials.credentials, auth0_user.email
+    )
 
 
 User = Annotated[Identity, Depends(current_user)]
@@ -126,7 +155,7 @@ Database = Annotated[Store, Depends(get_store)]
 async def membership(store: Store, user: Identity, group_id: UUID, organizer=False) -> dict:
     rows = await store.rows(
         "memberships",
-        token=user.token,
+        admin=True,
         group_id=f"eq.{group_id}",
         user_id=f"eq.{user.id}",
     )
@@ -151,7 +180,7 @@ def audio_object_path(group_id: UUID, path: str, owner_id: UUID | None = None) -
     return quote(path, safe="/")
 
 
-def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
+def create_app(settings: Settings | None = None, transport=None, authenticator=None) -> FastAPI:
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -159,6 +188,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         async with httpx.AsyncClient(timeout=30, transport=transport) as client:
             app.state.settings = settings
             app.state.store = Store(settings, client)
+            app.state.authenticator = authenticator or Auth0Authenticator(settings, client)
             app.state.jobs = Jobs(
                 settings, app.state.store, Gemini(settings, client), Resend(settings, client)
             )
@@ -189,7 +219,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         # Checks connectivity and the backend migration without exposing configuration values.
         await store.rows("editions", admin=True, select="id,lease_token,next_attempt_at", limit="0")
         configured = {
-            "user_auth": bool(settings.supabase_anon_key.get_secret_value()),
+            "user_auth": bool(settings.auth0_domain and settings.auth0_audience),
             "generation": bool(settings.gemini_api_key.get_secret_value()),
             "email": bool(settings.resend_api_key.get_secret_value() and settings.email_from),
             "worker": bool(settings.worker_secret.get_secret_value()),
@@ -201,46 +231,73 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
 
     @app.get("/me", tags=["Accounts"])
     async def me(user: User, store: Database):
-        rows = await store.rows("profiles", token=user.token, id=f"eq.{user.id}")
+        rows = await store.rows("profiles", admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        return {**rows[0], "email": user.email}
+        profile = {key: value for key, value in rows[0].items() if key != "auth0_subject"}
+        return {**profile, "email": user.email}
 
     @app.patch("/me", tags=["Accounts"])
     async def update_me(data: ProfileUpdate, user: User, store: Database):
-        rows = await store.write(
-            "PATCH", "profiles", data.model_dump(), token=user.token, id=f"eq.{user.id}"
-        )
+        payload = data.model_dump(exclude_unset=True, exclude_none=True)
+        if {"city", "lat", "lng", "location_mode"} & payload.keys():
+            payload["location_updated_at"] = datetime.now(UTC).isoformat()
+        rows = await store.write("PATCH", "profiles", payload, admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        return rows[0]
+        return {key: value for key, value in rows[0].items() if key != "auth0_subject"}
+
+    @app.get("/me/stats", tags=["Accounts"])
+    async def account_stats(user: User, store: Database):
+        memberships = await store.rows("memberships", admin=True, user_id=f"eq.{user.id}")
+        reflections = await store.rows("reflections", admin=True, user_id=f"eq.{user.id}")
+        sources = await store.rows("edition_sources", admin=True, user_id=f"eq.{user.id}")
+        return {
+            "groups_joined": len(memberships),
+            "groups_organized": sum(row.get("role") == "organizer" for row in memberships),
+            "email_subscriptions": sum(bool(row.get("email_enabled")) for row in memberships),
+            "reflections_total": len(reflections),
+            "reflections_submitted": sum(row.get("status") == "submitted" for row in reflections),
+            "editions_contributed_to": len({row["edition_id"] for row in sources}),
+        }
 
     @app.get("/groups", tags=["Groups"])
     async def groups(user: User, store: Database):
-        rows = await store.rows("groups", token=user.token, order="created_at.desc")
-        memberships = await store.rows("memberships", token=user.token, user_id=f"eq.{user.id}")
+        memberships = await store.rows("memberships", admin=True, user_id=f"eq.{user.id}")
+        if not memberships:
+            return []
         by_id = {m["group_id"]: m for m in memberships}
+        rows = await store.rows(
+            "groups",
+            admin=True,
+            id=f"in.({','.join(by_id)})",
+            order="created_at.desc",
+        )
         return [{**row, "membership": by_id.get(row["id"])} for row in rows]
 
     @app.post("/groups", status_code=201, tags=["Groups"])
     async def create_group(data: GroupCreate, user: User, store: Database):
         group_id = await store.rpc(
-            "create_group",
-            {"group_name": data.name, "group_timezone": data.timezone},
-            token=user.token,
+            "create_group_for",
+            {"actor_id": str(user.id), "group_name": data.name, "group_timezone": data.timezone},
+            admin=True,
         )
         return {"id": group_id}
 
     @app.post("/groups/join", tags=["Groups"])
     async def join_group(data: GroupJoin, user: User, store: Database):
         return {
-            "id": await store.rpc("join_group", {"invitation_code": data.code}, token=user.token)
+            "id": await store.rpc(
+                "join_group_for",
+                {"actor_id": str(user.id), "invitation_code": data.code},
+                admin=True,
+            )
         }
 
     @app.get("/groups/{group_id}", tags=["Groups"])
     async def group(group_id: UUID, user: User, store: Database):
         member = await membership(store, user, group_id)
-        rows = await store.rows("groups", token=user.token, id=f"eq.{group_id}")
+        rows = await store.rows("groups", admin=True, id=f"eq.{group_id}")
         return {
             **rows[0],
             "membership": member,
@@ -251,9 +308,9 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
     async def preference(group_id: UUID, data: EmailPreference, user: User, store: Database):
         await membership(store, user, group_id)
         await store.rpc(
-            "set_email_preference",
-            {"gid": str(group_id), "enabled": data.enabled},
-            token=user.token,
+            "set_email_preference_for",
+            {"actor_id": str(user.id), "gid": str(group_id), "enabled": data.enabled},
+            admin=True,
         )
         return {"email_enabled": data.enabled}
 
@@ -262,7 +319,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await membership(store, user, group_id)
         return await store.rows(
             "memberships",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             select="user_id,role,profiles(display_name)",
         )
@@ -271,7 +328,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
     async def current_period(group_id: UUID, user: User, store: Database):
         await membership(store, user, group_id)
         rows = await store.rows(
-            "issue_periods", token=user.token, group_id=f"eq.{group_id}", closed_at="is.null"
+            "issue_periods", admin=True, group_id=f"eq.{group_id}", closed_at="is.null"
         )
         if not rows:
             raise HTTPException(404, "No open issue period")
@@ -282,7 +339,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await membership(store, user, group_id)
         return await store.rows(
             "reflections",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             period_id=f"eq.{period_id}",
             order="updated_at.asc",
@@ -297,7 +354,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         if data.audio_path:
             path = audio_object_path(group_id, data.audio_path, user.id)
             audio = await store.request(
-                "GET", f"/storage/v1/object/authenticated/reflection-audio/{path}", token=user.token
+                "GET", f"/storage/v1/object/reflection-audio/{path}", admin=True
             )
             suffix = data.audio_path.rsplit(".", 1)[1]
             mime = next(k for k, v in MIME_TYPES.items() if v[1] == suffix)
@@ -309,7 +366,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
                 raise HTTPException(422, "Audio validation timed out; use text input") from exc
         existing = await store.rows(
             "reflections",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             period_id=f"eq.{period_id}",
             user_id=f"eq.{user.id}",
@@ -319,7 +376,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
                 "PATCH",
                 "reflections",
                 payload,
-                token=user.token,
+                admin=True,
                 id=f"eq.{existing[0]['id']}",
                 user_id=f"eq.{user.id}",
             )
@@ -333,7 +390,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
                     "period_id": str(period_id),
                     "user_id": str(user.id),
                 },
-                token=user.token,
+                admin=True,
             )
         if not rows:
             raise HTTPException(409, "Reflection changed concurrently; refresh and try again")
@@ -347,7 +404,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await store.write(
             "DELETE",
             "reflections",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             period_id=f"eq.{period_id}",
             user_id=f"eq.{user.id}",
@@ -378,7 +435,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await store.request(
             "POST",
             f"/storage/v1/object/reflection-audio/{path}",
-            token=user.token,
+            admin=True,
             content=audio,
             headers={"Content-Type": mime, "x-upsert": "false"},
         )
@@ -406,7 +463,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         result = await store.request(
             "POST",
             f"/storage/v1/object/sign/reflection-audio/{safe_path}",
-            token=user.token,
+            admin=True,
             json={"expiresIn": 60},
         )
         return {"url": f"{settings.supabase_url}/storage/v1{result['signedURL']}", "expires_in": 60}
@@ -424,7 +481,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         edition_id = await store.rpc(
             "close_issue",
             {"gid": str(group_id), "expected_period_id": str(data.period_id)},
-            token=user.token,
+            admin=True,
         )
         if edition_id:
             background.add_task(jobs.process_edition, edition_id)
@@ -443,7 +500,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
     ):
         await membership(store, user, group_id, organizer=True)
         rows = await store.rows(
-            "editions", token=user.token, id=f"eq.{edition_id}", group_id=f"eq.{group_id}"
+            "editions", admin=True, id=f"eq.{edition_id}", group_id=f"eq.{group_id}"
         )
         if not rows:
             raise HTTPException(404, "Edition not found")
@@ -466,7 +523,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await membership(store, user, group_id)
         return await store.rows(
             "editions",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             order="created_at.desc,id.desc",
             limit=str(limit),
@@ -479,7 +536,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await membership(store, user, group_id)
         rows = await store.rows(
             "editions",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             status="eq.published",
             order="published_at.desc,id.desc",
@@ -495,7 +552,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         await membership(store, user, group_id)
         rows = await store.rows(
             "editions",
-            token=user.token,
+            admin=True,
             group_id=f"eq.{group_id}",
             id=f"eq.{edition_id}",
             select=EDITION_FIELDS,
@@ -508,13 +565,13 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
     async def delivery_status(group_id: UUID, edition_id: UUID, user: User, store: Database):
         await membership(store, user, group_id)
         editions = await store.rows(
-            "editions", token=user.token, group_id=f"eq.{group_id}", id=f"eq.{edition_id}"
+            "editions", admin=True, group_id=f"eq.{group_id}", id=f"eq.{edition_id}"
         )
         if not editions:
             raise HTTPException(404, "Edition not found")
         rows = await store.rows(
             "email_deliveries",
-            token=user.token,
+            admin=True,
             edition_id=f"eq.{edition_id}",
             user_id=f"eq.{user.id}",
             select="id,status,attempts,last_error,sent_at",

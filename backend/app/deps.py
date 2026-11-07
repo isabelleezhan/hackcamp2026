@@ -1,6 +1,7 @@
 """Shared dependency aliases for routes added to the original scaffold.
 
-Store uses each caller's verified JWT; service-role access is explicit on worker calls.
+Auth0 verifies each caller. Store access uses the server-side service role only after route-level
+ownership or membership checks.
 """
 
 import hmac

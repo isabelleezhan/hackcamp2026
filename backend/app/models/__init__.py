@@ -10,7 +10,39 @@ class StrictModel(BaseModel):
 
 
 class ProfileUpdate(StrictModel):
-    display_name: str = Field(min_length=1, max_length=80)
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
+    location_mode: Literal["auto", "manual"] | None = None
+    city: str | None = Field(default=None, min_length=1, max_length=120)
+    lat: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    lng: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_profile_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Unknown timezone") from exc
+        return value
+
+    @model_validator(mode="after")
+    def valid_location(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one profile field is required")
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("Latitude and longitude must be supplied together")
+        if self.lat is not None and (
+            round(self.lat, 1) != self.lat or round(self.lng, 1) != self.lng
+        ):
+            raise ValueError("Coordinates must be rounded to one decimal place")
+        if self.location_mode == "auto" and (self.lat is None or self.city is None):
+            raise ValueError("Automatic location requires rounded coordinates and a city")
+        if self.location_mode == "manual" and self.city is None:
+            raise ValueError("Manual location requires a city")
+        return self
 
 
 class GroupCreate(StrictModel):

@@ -16,6 +16,10 @@ Project URL: https://ivjlummkprxwybqqfgor.supabase.co
 - Separate generation/delivery status and attempt/error fields. Unique delivery per edition/recipient.
 - Private `reflection-audio` bucket, 10 MB maximum, audio MIME allowlist. Upload paths: `<group_id>/<user_id>/<unique_filename>`. Only group members can read; only the named contributor can upload. Use new filenames rather than overwriting source audio.
 
+## Auth0 migration pending
+
+`migrations/0003_auth0_accounts.sql` moves application identity from Supabase Auth to Auth0. It preserves internal UUIDs, adds the Auth0 subject, verified email, location and timezone account fields, and changes worker email enrollment to use profiles. Review and apply it once before deploying the Auth0 backend. The API then uses the Supabase service role only after its own ownership/membership checks; Auth0 access tokens are never sent to Supabase.
+
 ## Client contract
 
 Call Supabase RPCs using the signed-in user's session:
@@ -35,15 +39,9 @@ The FastAPI backend must keep the service-role secret server-side. It validates 
 
 Audio duration metadata is constrained to 60 seconds when supplied. The backend must inspect actual file format and duration before sending audio to Gemini. Transcriptions remain drafts until the contributor reviews and submits the text. Use short-lived signed URLs or authenticated downloads. Backend service access handles any needed media cleanup.
 
-## Authentication blocker
+## Authentication
 
-Email provider, new signups, and email confirmation are already enabled. Anonymous sign-in is disabled.
-
-The project currently uses Supabase's default sender and a magic-link template. The dashboard requires **custom SMTP or a paid plan** before editing templates. No SMTP credentials or verified sender were available; no paid plan was enabled.
-
-To finish the PRD's email-code flow, configure a verified SMTP sender in Authentication → Emails → SMTP Settings, then set the Magic link or OTP and Confirm sign up templates to the provided `otp-email.html` body. Subject: `Your Community Newspaper sign-in code`. Use `signInWithOtp({email, options: {data: {display_name}}})`, followed by `verifyOtp({email, token, type: 'email'})`. Set the actual deployed frontend Site URL/redirect allowlist once known. Do not disable email confirmation.
-
-SMTP authentication credentials must be entered by the project owner. This setup did not send test emails or verify two-account sign-in.
+Auth0 now owns signup, login, password handling, sessions and email verification. Supabase Auth is no longer used by the application after `0003_auth0_accounts.sql`; its SMTP and OTP templates do not need configuration. Resend configuration is still required separately for newspaper delivery.
 
 ## Verification and boundaries
 

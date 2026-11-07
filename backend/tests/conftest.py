@@ -18,6 +18,8 @@ def settings():
         _env_file=None,
         supabase_anon_key="test-public",
         supabase_service_role_key="test-service",
+        auth0_domain="example.auth0.com",
+        auth0_audience="https://api.example.invalid",
         gemini_api_key="test-gemini",
         resend_api_key="test-resend",
         email_from="Newspaper <news@example.invalid>",

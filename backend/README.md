@@ -1,6 +1,6 @@
 # Community Newspaper API
 
-FastAPI backend for the PRD. Supabase remains the account/database/storage service; Gemini handles transcription and newspaper JSON; Resend sends edition emails. No frontend or external account is created by this backend.
+FastAPI backend for the PRD. Auth0 provides identity, Supabase provides Postgres/storage, Gemini handles transcription and newspaper JSON, and Resend sends edition emails.
 
 ## Run locally
 
@@ -20,15 +20,17 @@ uvicorn app.main:app --reload --port 8000
 
 API explorer: http://localhost:8000/docs. OpenAPI contract: http://localhost:8000/openapi.json. `/health` reports process health; `/ready` verifies Supabase connectivity, worker columns and required service configuration. It does not test provider credentials by generating content or sending email.
 
-The project URL is already filled in. Set `SUPABASE_ANON_KEY` to the project publishable/anon key, and `SUPABASE_SERVICE_ROLE_KEY` to its server-side secret/service-role key. Set `GEMINI_API_KEY`, `RESEND_API_KEY`, a verified `EMAIL_FROM`, and an independent random `WORKER_SECRET`. Set `FRONTEND_URL` to the real frontend origin and `CORS_ORIGINS` to a JSON array of allowed origins. The scaffold names `RESEND_FROM_EMAIL`, `N8N_WEBHOOK_SECRET` and `APP_URL` remain supported aliases for `EMAIL_FROM`, `WORKER_SECRET` and `FRONTEND_URL`; comma-separated CORS origins also remain supported. Never put server secrets in Vite environment variables or client code. Configuration loads from the working directory's `.env`.
+The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its server-side secret, `AUTH0_DOMAIN` to the tenant domain without `https://`, and `AUTH0_AUDIENCE` to the Auth0 API Identifier. Set `GEMINI_API_KEY`, `RESEND_API_KEY`, a verified `EMAIL_FROM`, and an independent random `WORKER_SECRET`. Set `FRONTEND_URL` to the real frontend origin and `CORS_ORIGINS` to a JSON array of allowed origins. Never put server secrets in Vite environment variables or client code. Configuration loads from the working directory's `.env`.
 
-`../supabase/migrations/0001_init.sql` and `../supabase/migrations/0002_backend_jobs.sql` have already been applied to project `ivjlummkprxwybqqfgor`. For a new Supabase project, apply both scripts in order. Do not rerun them on this project. They were applied in the dashboard, outside CLI migration history.
+`../supabase/migrations/0001_init.sql` and `0002_backend_jobs.sql` were previously applied to project `ivjlummkprxwybqqfgor`. The new `0003_auth0_accounts.sql` forward migration must be reviewed and applied once before deploying this Auth0 backend. Do not rerun earlier migrations on that project.
 
-## Authentication and routes
+## Authentication and account routes
 
-The frontend signs in with Supabase Auth and sends `Authorization: Bearer <access_token>` to every user endpoint. The API verifies that token with Supabase Auth for each request and requires a confirmed, nonanonymous email account. Interactive database and storage calls use the user's JWT, preserving RLS; the service-role key is limited to worker operations after authorization.
+Register an Auth0 API using RS256. The frontend signs in with Auth0 Universal Login and requests an access token using that API Identifier as its audience plus `openid profile email`. It sends `Authorization: Bearer <access_token>` to protected endpoints. FastAPI verifies the JWT issuer, audience, signature, expiry and subject against Auth0 JWKS, requires a verified email, then provisions or refreshes the corresponding Postgres profile. Because Auth0 tokens are not Supabase sessions, all database/storage access uses the service role after backend ownership and membership checks.
 
-The existing SMTP/template blocker still applies to email-code sign-in. Backend implementation does not change Auth email templates. See `../supabase/README.md`.
+`GET /me` returns the stored account profile. `PATCH /me` updates display name, manual/approximate location and IANA timezone; coordinates must already be rounded to one decimal place. `GET /me/stats` returns group, subscription, reflection and edition-contribution counts. Auth0 owns passwords, sessions, verification and identity deletion; the application database stores no password or token.
+
+Configure email/password and verification in Auth0 Universal Login. Supabase Auth email templates and SMTP are no longer used for application sign-in. Resend remains separate and is used only for newspaper delivery.
 
 | Method and path | Purpose |
 | --- | --- |
@@ -94,6 +96,6 @@ ruff format --check .
 
 The test suite uses HTTP mocks for Supabase/Gemini/Resend, plus real FFprobe on generated WAV fixtures. `../supabase/tests/verify_backend_jobs.sql` was also run successfully against the live project with all test data rolled back. It checks leases, stale-worker rejection, atomic opt-in enrollment, frozen retry payloads, sent-email protection, opt-out rechecks, the retry-window cutoff and worker function permissions. The baseline `../supabase/tests/verify_schema.sql` covers membership/period/reflection rules.
 
-No real customer reflections were sent to Gemini, and no edition emails were sent. Full live text → Gemini → Resend and two-account OTP acceptance still require configured secrets, a verified email sender and the Auth SMTP setup.
+No real customer reflections were sent to Gemini, and no edition emails were sent. Full live Auth0 → text → Gemini → Resend acceptance still requires configured secrets, a verified email sender, the Auth0 tenant/API setup, and two test accounts.
 
 Provider contracts: [Gemini structured output](https://ai.google.dev/gemini-api/docs/structured-output), [Supabase server-verified users](https://supabase.com/docs/reference/javascript/auth-getuser), [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys).
