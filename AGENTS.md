@@ -94,7 +94,9 @@ round avatar pins, frosted-glass sheet, record button).
 - Preserve names, facts and attribution. Never invent events, quotes, relationships or advice.
 - Handle hard news respectfully; don't force positive framing.
 - Include every contributor; keep the paper to a few minutes of reading however many notes there are.
-- Model name comes from `GEMINI_MODEL` (env). Use structured output (`response_schema`) with Pydantic models.
+- Newspaper model comes from `GEMINI_MODEL` (default `gemini-3.8-flash`). Use structured output (`response_schema`) with Pydantic models.
+- The standalone audio prototype uses `GEMINI_TRANSCRIPTION_MODEL` (default `gemini-3.5-transcribe`) and configurable `GEMINI_FALLBACK_MODELS`. It is mounted at `POST /audio/transcribe` and returns `{text}` without storing audio.
+- Per the local prototype request, `/audio/transcribe` and the frontend work without sign-in when Supabase auth is not configured (`SUPABASE_ANON_KEY` is empty). This exception does not apply to group, note, publishing, or media routes. Configure Supabase on both sides to restore sign-in for the prototype.
 
 ## Edition content shape (stored in `editions.content`)
 ```json

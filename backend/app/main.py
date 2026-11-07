@@ -1,7 +1,6 @@
 import hmac
 import re
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import quote
@@ -24,10 +23,10 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from app.config import Settings, get_settings
+from app.deps import Identity, current_user, get_store
 from app.jobs import Jobs
 from app.media import MAX_AUDIO_BYTES, MIME_TYPES, inspect_audio
 from app.models import (
@@ -40,9 +39,9 @@ from app.models import (
     ReflectionWrite,
 )
 from app.providers import Gemini, Resend
+from app.routers.audio import router as audio_router
 from app.store import Store
 
-bearer = HTTPBearer(auto_error=False)
 EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
 
 
@@ -86,38 +85,8 @@ class BodyLimitMiddleware:
                 )
 
 
-@dataclass(frozen=True)
-class Identity:
-    id: UUID
-    token: str
-    email: str = ""
-
-
-def get_store(request: Request) -> Store:
-    return request.app.state.store
-
-
 def get_jobs(request: Request) -> Jobs:
     return request.app.state.jobs
-
-
-async def current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-    store: Annotated[Store, Depends(get_store)],
-) -> Identity:
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(401, "Sign in required", headers={"WWW-Authenticate": "Bearer"})
-    user = await store.request("GET", "/auth/v1/user", token=credentials.credentials)
-    try:
-        if (
-            user.get("is_anonymous")
-            or user.get("role") != "authenticated"
-            or not user.get("email_confirmed_at")
-        ):
-            raise ValueError("Email authentication required")
-        return Identity(UUID(user["id"]), credentials.credentials, user.get("email") or "")
-    except (KeyError, ValueError, TypeError) as exc:
-        raise HTTPException(401, "A verified email account is required") from exc
 
 
 User = Annotated[Identity, Depends(current_user)]
@@ -166,6 +135,7 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
             yield
 
     app = FastAPI(title="Community Newspaper API", version="0.1.0", lifespan=lifespan)
+    app.include_router(audio_router)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
