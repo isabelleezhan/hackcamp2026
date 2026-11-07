@@ -9,35 +9,53 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class ProfileUpdate(StrictModel):
-    display_name: str | None = Field(default=None, min_length=1, max_length=80)
-    location_mode: Literal["auto", "manual"] | None = None
+MAX_TYPED_CHARS = 2000
+MAX_TRANSCRIPT_CHARS = 4000
+MAX_AUDIO_SECONDS = 180
+
+
+def valid_timezone(value: str | None) -> str | None:
+    if value is None:
+        return value
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("Unknown timezone") from exc
+    return value
+
+
+class Location(StrictModel):
     city: str | None = Field(default=None, min_length=1, max_length=120)
     lat: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     lng: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
-    timezone: str | None = None
-
-    @field_validator("timezone")
-    @classmethod
-    def valid_profile_timezone(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        try:
-            ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
-            raise ValueError("Unknown timezone") from exc
-        return value
 
     @model_validator(mode="after")
-    def valid_location(self):
-        if not self.model_fields_set:
-            raise ValueError("At least one profile field is required")
+    def lat_lng_together(self):
         if (self.lat is None) != (self.lng is None):
-            raise ValueError("Latitude and longitude must be supplied together")
+            raise ValueError("lat and lng must be supplied together")
         if self.lat is not None and (
             round(self.lat, 1) != self.lat or round(self.lng, 1) != self.lng
         ):
             raise ValueError("Coordinates must be rounded to one decimal place")
+        return self
+
+
+class ProfileUpdate(Location):
+    """Partial update: only the fields sent are changed."""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
+    location_mode: Literal["auto", "manual"] | None = None
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def known_timezone(cls, value: str | None) -> str | None:
+        return valid_timezone(value)
+
+    @model_validator(mode="after")
+    def valid_profile_location(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one profile field is required")
         if self.location_mode == "auto" and (self.lat is None or self.city is None):
             raise ValueError("Automatic location requires rounded coordinates and a city")
         if self.location_mode == "manual" and self.city is None:
@@ -51,27 +69,41 @@ class GroupCreate(StrictModel):
 
     @field_validator("timezone")
     @classmethod
-    def valid_timezone(cls, value: str) -> str:
-        try:
-            ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
-            raise ValueError("Unknown timezone") from exc
-        return value
+    def known_timezone(cls, value: str) -> str:
+        return valid_timezone(value)
 
 
 class GroupJoin(StrictModel):
-    code: str = Field(pattern=r"^[0-9a-f]{32}$")
+    # New groups: 8 characters without 0/O/1/I/L. Older groups: 32 hex characters.
+    code: str = Field(min_length=8, max_length=32)
+
+    @field_validator("code")
+    @classmethod
+    def normalize(cls, value: str) -> str:
+        import re
+
+        value = value.strip()
+        if re.fullmatch(r"[0-9a-f]{32}", value):
+            return value
+        value = value.upper().replace("-", "").replace(" ", "")
+        if not re.fullmatch(r"[2-9A-HJKMNP-Z]{8}", value):
+            raise ValueError("Invalid invitation code")
+        return value
 
 
 class EmailPreference(StrictModel):
     enabled: bool
 
 
-class ReflectionWrite(StrictModel):
-    body: str = Field(default="", max_length=2000)
+class ReflectionWrite(Location):
+    """One note. A person can add many per week; city/lat/lng are where it was recorded."""
+
+    body: str = Field(default="", max_length=MAX_TRANSCRIPT_CHARS)
     status: Literal["draft", "submitted"] = "draft"
     audio_path: str | None = Field(default=None, max_length=240)
-    audio_duration_seconds: float | None = Field(default=None, gt=0, le=60, allow_inf_nan=False)
+    audio_duration_seconds: float | None = Field(
+        default=None, gt=0, le=MAX_AUDIO_SECONDS, allow_inf_nan=False
+    )
     # The interface must explain group sharing and AI processing before asking for this.
     ai_consent: bool = False
 
@@ -83,6 +115,8 @@ class ReflectionWrite(StrictModel):
             )
         if bool(self.audio_path) != (self.audio_duration_seconds is not None):
             raise ValueError("Audio reference and verified duration must be supplied together")
+        if not self.audio_path and len(self.body) > MAX_TYPED_CHARS:
+            raise ValueError(f"Typed notes are limited to {MAX_TYPED_CHARS} characters")
         return self
 
 
@@ -97,8 +131,12 @@ class Story(StrictModel):
 
 
 class MemberUpdate(Story):
+    """One story per person, summarizing all of that person's notes for the week."""
+
     user_id: UUID
     display_name: str = Field(min_length=1, max_length=80)
+    # City the story is filed from ("LISBON — ..."); must be a city on one of their notes.
+    dateline: str | None = Field(default=None, max_length=120)
 
 
 class Newspaper(StrictModel):
@@ -110,7 +148,7 @@ class Newspaper(StrictModel):
 
 
 class Transcription(StrictModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=MAX_TRANSCRIPT_CHARS)
 
 
 class AudioResult(StrictModel):

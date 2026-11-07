@@ -56,7 +56,15 @@ class Store:
             if response.status_code == 401:
                 raise HTTPException(401, "Invalid or expired session")
             if code == "23505":
-                raise HTTPException(409, "A reflection or record already exists for this period")
+                raise HTTPException(409, "That record already exists")
+            if message == "Weekly note limit reached":
+                raise HTTPException(
+                    429, "You've added 30 notes this week. That's the weekly limit."
+                )
+            if message == "Weekly audio limit reached":
+                raise HTTPException(
+                    429, "You've recorded 30 minutes this week. That's the weekly limit."
+                )
             if message == "Period is closed":
                 raise HTTPException(
                     409, "This issue period is closed; contribute to the next period"

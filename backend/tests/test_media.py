@@ -23,7 +23,7 @@ async def test_actual_audio_duration_is_validated():
 
 async def test_long_audio_rejected_before_processing():
     with pytest.raises(HTTPException) as error:
-        await inspect_audio(wav(61), "audio/wav", "ffprobe")
+        await inspect_audio(wav(181), "audio/wav", "ffprobe")
     assert error.value.status_code == 422
 
 

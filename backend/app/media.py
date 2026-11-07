@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
+MAX_AUDIO_SECONDS = 180  # keep in sync with 0004_notes_location.sql and AGENTS.md
 MIME_TYPES = {
     "audio/webm": ("webm", "webm"),
     "audio/ogg": ("ogg", "ogg"),
@@ -73,10 +74,10 @@ async def inspect_audio(data: bytes, mime: str, ffprobe_path: str) -> float:
             if points:
                 durations.append(max(ends) - min(points))
             duration = max(durations)
-            if not math.isfinite(duration) or duration <= 0 or duration > 60:
-                raise ValueError("Audio must be at most 60 seconds long")
+            if not math.isfinite(duration) or duration <= 0 or duration > MAX_AUDIO_SECONDS:
+                raise ValueError(f"Audio must be at most {MAX_AUDIO_SECONDS} seconds long")
             return duration
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
-                422, "Invalid audio format or duration; maximum 60 seconds"
+                422, f"Invalid audio format or duration; maximum {MAX_AUDIO_SECONDS // 60} minutes"
             ) from exc

@@ -160,24 +160,28 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   editions, retry-safe delivery, and `POST /internal/tick` for n8n (header `X-Worker-Secret`).
   Auth0 JWTs identify callers; all Supabase access uses the service role after explicit route checks.
 - **Live schema** (`0001_init.sql` + `0002_backend_jobs.sql`) is applied to Supabase project
-  `ivjlummkprxwybqqfgor`. Do not rerun those files. `0003_auth0_accounts.sql` is pending review/application.
+  `ivjlummkprxwybqqfgor`. `0003_auth0_accounts.sql` was applied and verified on November 7, 2026.
+  Do not rerun these files; make later changes with a new forward migration.
 - **Accounts implemented:** Auth0 JWT validation, automatic Postgres profile provisioning,
   display name/location/timezone management, and account statistics.
-- **Gaps between the built backend and this file** (block 1 of TIMELINE.md):
-  - `reflections` is one per person per week; we want **many notes per week**. Drop
-    `unique(period_id, user_id)` and turn the single `PUT …/reflection` into add, edit and delete by id.
-    `edition_sources` and `source_reflection_ids` already support several notes per person.
-  - Audio is limited to **60 s** (DB check, `media.py`, models); we want **180 s**.
-  - Profile location/timezone columns are in pending migration `0003`; reflection location is not yet added.
-  - No weekly limit per person yet.
+- **`0004_notes_location.sql` is written and tested locally but NOT yet applied to the live
+  project.** With it, the backend now supports many notes per week, 180 s voice notes, approximate
+  location and time zone, datelines, weekly limits, notes private until published, owner-only voice
+  clips, 8-character join codes and issue numbers. Details: [supabase/README.md](supabase/README.md).
+  Apply it and deploy the matching backend together. Note routes are now
+  `POST …/periods/{pid}/reflections`, `PUT`/`DELETE …/reflections/{id}`, plus
+  `GET …/periods/{pid}/note-counts`. The table is still called `reflections`; "notes" in this file
+  means the same thing.
 - **Frontend:** scaffold with auth context and the `api()` helper. `Login.tsx` still uses Supabase
-  Auth and must later switch to Auth0. Everything else (groups, notes, publish button,
+  Auth and must switch to Auth0. Everything else (groups, notes, publish button,
   newspaper template, globe, recorder) is still to build.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current
-   assumption: only in the published paper.
-2. Can members **play the original voice clips** from the paper? If yes, tell users their audio is shared, not just the text.
+   assumption, enforced by the `reflection_read` policy in `0003`: only in the published paper.
+2. Can members **play the original voice clips** from the paper? Currently no: `0003`'s
+   `audio_read` storage policy allows only the author. If the team says yes, loosen that policy
+   and tell users their audio is shared, not just the text.
 3. The globe shows **one group at a time** with a switcher (assumed).
 
 ## Scope priority

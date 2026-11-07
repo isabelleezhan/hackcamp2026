@@ -50,6 +50,7 @@ def newspaper():
                 "headline": "Garden finished",
                 "text": "Alex finished the garden.",
                 "source_reflection_ids": [SOURCE],
+                "dateline": None,
             }
         ],
         "little_victories": [],

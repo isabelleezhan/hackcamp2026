@@ -44,7 +44,7 @@ from app.providers import Gemini, Resend
 from app.store import Store
 
 bearer = HTTPBearer(auto_error=False)
-EDITION_FIELDS = "id,group_id,period_id,status,content,generation_error,generation_attempts,published_at,created_at"
+EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
 
 
 class BodyTooLarge(Exception):
@@ -321,7 +321,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             "memberships",
             admin=True,
             group_id=f"eq.{group_id}",
-            select="user_id,role,profiles(display_name)",
+            select="user_id,role,profiles(display_name,city,lat,lng,timezone,location_updated_at)",
         )
 
     @app.get("/groups/{group_id}/periods/current", tags=["Reflections"])
@@ -345,11 +345,19 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             order="updated_at.asc",
         )
 
-    @app.put("/groups/{group_id}/periods/{period_id}/reflection", tags=["Reflections"])
-    async def save_reflection(
-        group_id: UUID, period_id: UUID, data: ReflectionWrite, user: User, store: Database
-    ):
+    @app.get("/groups/{group_id}/periods/{period_id}/note-counts", tags=["Reflections"])
+    async def note_counts(group_id: UUID, period_id: UUID, user: User, store: Database):
+        """How many submitted notes each member has this week (for the globe). No content."""
         await membership(store, user, group_id)
+        return await store.rpc(
+            "period_note_counts_for",
+            {"actor_id": str(user.id), "gid": str(group_id), "pid": str(period_id)},
+            admin=True,
+        )
+
+    async def note_payload(
+        store: Store, group_id: UUID, data: ReflectionWrite, user: Identity
+    ) -> dict:
         payload = data.model_dump(exclude={"ai_consent"})
         if data.audio_path:
             path = audio_object_path(group_id, data.audio_path, user.id)
@@ -364,49 +372,65 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
                 )
             except TimeoutError as exc:
                 raise HTTPException(422, "Audio validation timed out; use text input") from exc
-        existing = await store.rows(
+        return payload
+
+    @app.post(
+        "/groups/{group_id}/periods/{period_id}/reflections",
+        status_code=201,
+        tags=["Reflections"],
+    )
+    async def add_reflection(
+        group_id: UUID, period_id: UUID, data: ReflectionWrite, user: User, store: Database
+    ):
+        """Add a note. People can add many per week (limits: 30 notes / 30 minutes of audio)."""
+        await membership(store, user, group_id)
+        payload = await note_payload(store, group_id, data, user)
+        rows = await store.write(
+            "POST",
             "reflections",
+            {
+                **payload,
+                "group_id": str(group_id),
+                "period_id": str(period_id),
+                "user_id": str(user.id),
+            },
             admin=True,
+        )
+        if not rows:
+            raise HTTPException(409, "Note could not be saved; refresh and try again")
+        return rows[0]
+
+    @app.put("/groups/{group_id}/reflections/{reflection_id}", tags=["Reflections"])
+    async def replace_reflection(
+        group_id: UUID, reflection_id: UUID, data: ReflectionWrite, user: User, store: Database
+    ):
+        """Replace one of your notes (text, status, audio, location) while its week is open."""
+        await membership(store, user, group_id)
+        payload = await note_payload(store, group_id, data, user)
+        rows = await store.write(
+            "PATCH",
+            "reflections",
+            payload,
+            admin=True,
+            id=f"eq.{reflection_id}",
             group_id=f"eq.{group_id}",
-            period_id=f"eq.{period_id}",
             user_id=f"eq.{user.id}",
         )
-        if existing:
-            rows = await store.write(
-                "PATCH",
-                "reflections",
-                payload,
-                admin=True,
-                id=f"eq.{existing[0]['id']}",
-                user_id=f"eq.{user.id}",
-            )
-        else:
-            rows = await store.write(
-                "POST",
-                "reflections",
-                {
-                    **payload,
-                    "group_id": str(group_id),
-                    "period_id": str(period_id),
-                    "user_id": str(user.id),
-                },
-                admin=True,
-            )
         if not rows:
-            raise HTTPException(409, "Reflection changed concurrently; refresh and try again")
+            raise HTTPException(404, "Note not found")
         return rows[0]
 
     @app.delete(
-        "/groups/{group_id}/periods/{period_id}/reflection", status_code=204, tags=["Reflections"]
+        "/groups/{group_id}/reflections/{reflection_id}", status_code=204, tags=["Reflections"]
     )
-    async def delete_reflection(group_id: UUID, period_id: UUID, user: User, store: Database):
+    async def delete_reflection(group_id: UUID, reflection_id: UUID, user: User, store: Database):
         await membership(store, user, group_id)
         await store.write(
             "DELETE",
             "reflections",
             admin=True,
+            id=f"eq.{reflection_id}",
             group_id=f"eq.{group_id}",
-            period_id=f"eq.{period_id}",
             user_id=f"eq.{user.id}",
         )
         return Response(status_code=204)
