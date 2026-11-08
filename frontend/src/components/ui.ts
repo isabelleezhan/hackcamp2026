@@ -8,7 +8,7 @@ export const primary =
 export const secondary =
   'inline-flex items-center justify-center gap-2 rounded-[14px] border border-card-line bg-white px-4 py-3 font-system text-[15px] font-bold text-glass-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text disabled:cursor-not-allowed disabled:opacity-40'
 export const record =
-  'inline-flex items-center justify-center gap-2 rounded-[16px] bg-record px-4 py-3.5 font-system text-[16px] font-bold text-white shadow-[0_8px_18px_rgba(232,83,74,.28)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text disabled:opacity-40'
+  'inline-flex items-center justify-center gap-2 rounded-[16px] bg-record px-4 py-3.5 font-system text-[16px] font-bold text-white shadow-[0_8px_18px_rgba(239,100,97,.30)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text disabled:opacity-40'
 export const link = 'font-semibold text-accent-text underline-offset-4 hover:underline'
 export const title = 'text-[28px] font-extrabold tracking-[-0.02em] text-glass-text'
 export const subtitle = 'text-[14px] text-glass-muted'

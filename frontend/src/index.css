@@ -9,7 +9,7 @@
   --color-ink: #1c1917;
 
   /* Light globe look (matches the Long-Distance Weekly prototype): pale sky, white frosted glass,
-     pastel clay globe, coral accent with light-blue chrome, serif paper cards. */
+     pastel clay globe, light-blue accent with light-red secondary, serif paper cards. */
   --font-system: 'Figtree', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
   --font-reading: 'Newsreader', 'Iowan Old Style', Georgia, serif;
   --color-sky-top: #f4f8fd;
@@ -21,13 +21,15 @@
   --color-glass-text: #1f2430;
   --color-glass-muted: #687185;
   --color-chip: rgb(59 130 214 / 0.11);
-  --color-accent: #f0604f;
+  /* Main accent: light blue (buttons, links, selection). Secondary: light red (voice, recording). */
+  --color-accent: #4a9be8;
   --color-accent-ink: #ffffff;
-  --color-accent-text: #c2412f;
-  --color-accent-soft: #ffe9e5;
-  --color-blue: #2f74c8;
-  --color-blue-soft: #e2eefc;
-  --color-record: #e8534a;
+  --color-accent-text: #1f6fc5;
+  --color-accent-soft: #e3f0ff;
+  --color-secondary: #f07a73;
+  --color-secondary-text: #c2412f;
+  --color-secondary-soft: #ffe8e5;
+  --color-record: #ef6461;
   --color-alert: #c4282d;
   --color-ok: #2f8f55;
   --color-card: #ffffff;
@@ -79,8 +81,8 @@ body {
 }
 .compose-in { animation: compose-in .32s cubic-bezier(.2,.9,.25,1.1) both; transform-origin: bottom right; }
 @keyframes compose-flash {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(240,96,79,0); }
-  30% { box-shadow: 0 0 0 4px rgba(240,96,79,.35); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,100,97,0); }
+  30% { box-shadow: 0 0 0 4px rgba(239,100,97,.35); }
 }
 .compose-flash { animation: compose-flash 1.4s ease-out; }
 @media (prefers-reduced-motion: reduce) {

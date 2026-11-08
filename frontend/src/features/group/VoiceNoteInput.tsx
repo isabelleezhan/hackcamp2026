@@ -22,6 +22,8 @@ type Props = {
   onBusyChange: (busy: boolean) => void
   onTranscribed: (audio: AudioResult) => void
   onDraftChange: (draft: boolean) => void
+  /** Heading above the recorder; null hides it (when the panel already says "Record a voice note"). */
+  title?: string | null
 }
 
 export default function VoiceNoteInput({
@@ -30,6 +32,7 @@ export default function VoiceNoteInput({
   onBusyChange,
   onTranscribed,
   onDraftChange,
+  title = 'Or tell it in your own voice',
 }: Props) {
   const { group } = useGroup()
   const recorder = useRecorder()
@@ -115,7 +118,7 @@ export default function VoiceNoteInput({
 
   return (
     <div className="grid gap-2 rounded-xl bg-chip/50 p-3" aria-label="Voice note">
-      <p className="text-[14px] font-semibold">Or tell it in your own voice</p>
+      {title && <p className="text-[14px] font-semibold">{title}</p>}
       <p className={subtitle}>Up to 3 minutes and 10 MB. You'll review the transcript before saving.</p>
       {audioRemaining <= 0 && (
         <p className={subtitle}>You've used 30 minutes of audio this week. You can still type a note.</p>

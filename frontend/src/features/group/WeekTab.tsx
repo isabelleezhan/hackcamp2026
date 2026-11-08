@@ -4,17 +4,43 @@ import { card, primary, secondary, subtitle } from '../../components/ui'
 import { api, ApiError } from '../../lib/api'
 import { approximateLocation } from '../../lib/location'
 import { deadlineLabel, shortStamp, timeUntil } from '../../lib/time'
-import type { Period, PublishResult, Reflection } from '../../lib/types'
+import type { GroupSummary, Period, PublishResult, Reflection } from '../../lib/types'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
 import NoteComposer, { type NoteInput } from './NoteComposer'
 import { clock } from './useRecorder'
 
+const listNames = (names: string[]) =>
+  names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+
+/** Save a text copy of a new note into each chosen newsletter's current week. */
+async function sendCopies(
+  groups: GroupSummary[],
+  body: string,
+  location: { city: string | null; lat: number | null; lng: number | null },
+) {
+  return Promise.all(
+    groups.map(async (g) => {
+      try {
+        const period = await api<Period>(`/groups/${g.id}/periods/current`)
+        await api(`/groups/${g.id}/periods/${period.id}/reflections`, {
+          method: 'POST',
+          body: JSON.stringify({ body, ...location, status: 'submitted', ai_consent: true }),
+        })
+        return { name: g.name, ok: true }
+      } catch {
+        return { name: g.name, ok: false }
+      }
+    }),
+  )
+}
+
 const explain = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Please try again.'
 
 /** Key the working draft to the group and week so it cannot be saved into another week. */
-export default function WeekTab() {
+/** `mode` limits the composer to recording (voice) or typing (write); without it, both are shown. */
+export default function WeekTab({ mode }: { mode?: 'voice' | 'write' }) {
   const { group, period, refresh } = useGroup()
   if (!period)
     return (
@@ -26,10 +52,10 @@ export default function WeekTab() {
         </button>
       </section>
     )
-  return <WeekContent key={`${group.id}:${period.id}`} period={period} />
+  return <WeekContent key={`${group.id}:${period.id}`} period={period} mode={mode} />
 }
 
-function WeekContent({ period }: { period: Period }) {
+function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write' }) {
   const { group, isOrganizer, refresh } = useGroup()
   const { profile } = useProfile()
   const navigate = useNavigate()
@@ -38,7 +64,6 @@ function WeekContent({ period }: { period: Period }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [consent, setConsent] = useState(false)
   const [editing, setEditing] = useState<Reflection | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmPublish, setConfirmPublish] = useState(false)
@@ -107,22 +132,34 @@ function WeekContent({ period }: { period: Period }) {
           locationFallback = true
         }
       }
+      const { also, ...note } = data
       const result = await api<Reflection>(
         editing ? `/groups/${group.id}/reflections/${editing.id}` : listUrl,
         {
           method: editing ? 'PUT' : 'POST',
-          body: JSON.stringify({ ...data, ...location, status: 'submitted', ai_consent: consent }),
+          body: JSON.stringify({ ...note, ...location, status: 'submitted', ai_consent: true }),
         },
       )
+      // Text copies for the other newsletters picked. Audio stays with this group.
+      const copies = editing ? [] : await sendCopies(also, note.body, location)
       setNotes((previous) =>
         editing ? previous.map((note) => (note.id === result.id ? result : note)) : [...previous, result],
       )
       setEditing(null)
+      const sent = copies.filter((c) => c.ok).map((c) => c.name)
+      const failed = copies.filter((c) => !c.ok).map((c) => c.name)
       setNotice(
-        locationFallback
-          ? 'Note saved using your last known city. Your current location was unavailable.'
-          : 'Note saved for this week.',
+        [
+          locationFallback
+            ? 'Note saved using your last known city. Your current location was unavailable.'
+            : 'Note saved for this week.',
+          sent.length ? `Also sent to ${listNames(sent)}.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
       )
+      if (failed.length)
+        setActionError(`Couldn't send it to ${listNames(failed)}. Open that newsletter and add it there.`)
       void refresh()
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && /closed/i.test(error.message))
@@ -207,8 +244,8 @@ function WeekContent({ period }: { period: Period }) {
       <section className={`${card} grid gap-3 p-4`} aria-label="Your weekly notes">
         <h3 className="text-[18px] font-bold">Your notes</h3>
         <p className={subtitle}>
-          Only you can read or edit these notes before publication. The newspaper brings everyone's updates
-          together.
+          Only you can see these until the paper comes out. Your notes go into this group's paper, which AI
+          writes from everyone's notes. Original recordings stay private.
         </p>
         {loading ? (
           <p role="status">Loading your notes...</p>
@@ -294,23 +331,10 @@ function WeekContent({ period }: { period: Period }) {
       </section>
       {!loading && !loadError && (canAdd || editing || dirty) && (
         <div className="grid gap-3">
-          <label className="flex items-start gap-2 rounded-xl border border-card-line bg-card p-3 text-[13px]">
-            <input
-              type="checkbox"
-              checked={consent}
-              disabled={disabled || closed}
-              onChange={(event) => setConsent(event.target.checked)}
-              className="mt-1"
-            />
-            <span>
-              I agree to sharing my notes in this group's newspaper and having AI read them to write it.
-              Original recordings stay private.
-            </span>
-          </label>
           <NoteComposer
             key={editing?.id ?? 'new'}
             note={editing}
-            consent={consent}
+            mode={mode}
             disabled={busy || closed}
             audioRemaining={Math.max(0, 1800 - totalAudio)}
             onSave={save}

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { pillButton } from '../../components/GlassPage'
 import { useGroup } from '../group/context'
 import { api, ApiError } from '../../lib/api'
 import type { Edition, Group, Newspaper } from '../../lib/types'
 import EditionView from './EditionView'
-import EmailPreview, { type EmailMessage } from './EmailPreview'
 
 const POLL_MS = 3000
 
@@ -98,10 +97,6 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
-  const [params, setParams] = useSearchParams()
-  const view: EditionViewMode = params.get('view') === 'email' ? 'email' : 'app'
-  const [email, setEmail] = useState<EmailMessage | null>(null)
-  const [emailError, setEmailError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -131,15 +126,6 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
     return () => clearTimeout(t)
   }, [edition, load])
 
-  // Load the email preview the first time the Email view is opened.
-  const published = edition?.status === 'published'
-  useEffect(() => {
-    if (view !== 'email' || !published || email) return
-    api<EmailMessage>(`/groups/${groupId}/editions/${editionId}/email-preview`)
-      .then(setEmail)
-      .catch(() => setEmailError("Couldn't load the email preview. Refresh to try again."))
-  }, [view, published, email, groupId, editionId])
-
   async function retry() {
     setRetrying(true)
     setRetryError(null)
@@ -162,22 +148,7 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
       ) : !edition ? (
         <GlassNotice title="Loading this week's paper…" />
       ) : (
-        <div>
-          {published && (
-            <ViewSwitch view={view} onChange={(v) => setParams(v === 'email' ? { view: 'email' } : {}, { replace: true })} />
-          )}
-          {published && view === 'email' ? (
-            emailError ? (
-              <GlassNotice title="Email preview not available">{emailError}</GlassNotice>
-            ) : email ? (
-              <EmailPreview email={email} />
-            ) : (
-              <GlassNotice title="Loading the email…" />
-            )
-          ) : (
-            <EditionState edition={edition} group={group} onRetry={retry} retrying={retrying} />
-          )}
-        </div>
+        <EditionState edition={edition} group={group} onRetry={retry} retrying={retrying} />
       )}
     </div>
   )

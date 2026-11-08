@@ -18,7 +18,7 @@ const mailLabel = (p: Person) => (p.notes > 0 ? 'Sent mail this week' : 'No mail
 
 /** People tab (the globe's list): everyone, their city and local time, and whether they've sent mail. */
 export default function PeopleTab() {
-  const { people, meId } = useGroup()
+  const { people, meId, group } = useGroup()
   const sent = people.filter((p) => p.notes > 0).length
 
   return (
@@ -38,7 +38,7 @@ export default function PeopleTab() {
         {people.map((p) => (
           <li key={p.id} className="border-card-line [&+&]:border-t">
             <Link
-              to={`people/${p.id}`}
+              to={`/groups/${group.id}/people/${p.id}`}
               className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 hover:bg-glass-row focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text"
             >
               <Avatar id={p.id} name={p.id === meId ? 'Me' : p.name} />

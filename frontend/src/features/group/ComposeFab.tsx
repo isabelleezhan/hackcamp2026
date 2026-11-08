@@ -134,7 +134,7 @@ export default function ComposeFab({ narrow }: { narrow: boolean }) {
             </button>
           </header>
           <div className={`min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
-            <WeekTab />
+            <WeekTab mode={mode} />
           </div>
         </div>
       )}
@@ -149,7 +149,7 @@ export default function ComposeFab({ narrow }: { narrow: boolean }) {
           aria-expanded={open}
           aria-controls="compose-options"
           onClick={() => (mode && !open ? choose(null) : setOpen((o) => !o))}
-          className="grid size-[58px] place-items-center rounded-full bg-accent text-accent-ink shadow-[0_12px_28px_rgba(240,96,79,.40),0_2px_6px_rgba(36,56,92,.12)] transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text"
+          className="grid size-[58px] place-items-center rounded-full bg-accent text-accent-ink shadow-[0_12px_28px_rgba(74,155,232,.42),0_2px_6px_rgba(36,56,92,.12)] transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text"
         >
           <svg
             viewBox="0 0 24 24"
@@ -184,7 +184,7 @@ export default function ComposeFab({ narrow }: { narrow: boolean }) {
                 onClick={() => choose(o.mode)}
                 className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-white/90 bg-white/70 py-2.5 pl-3.5 pr-4 text-[15px] font-bold text-glass-text shadow-[0_10px_26px_rgba(36,56,92,.18)] backdrop-blur-[22px] backdrop-saturate-[1.6] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text"
               >
-                <span className={`grid size-8 place-items-center rounded-full ${o.mode === 'voice' ? 'bg-accent-soft text-accent-text' : 'bg-blue-soft text-blue'}`}>{o.icon}</span>
+                <span className={`grid size-8 place-items-center rounded-full ${o.mode === 'voice' ? 'bg-secondary-soft text-secondary-text' : 'bg-accent-soft text-accent-text'}`}>{o.icon}</span>
                 {o.label}
               </button>
             </li>
