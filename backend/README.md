@@ -158,7 +158,9 @@ Publishing body: `{ "period_id": "the-current-period-UUID" }`. Keep that same ID
 
 Newspaper generation defaults to `GEMINI_MODEL=gemini-3.5-flash-lite` for lower latency. It uses
 `GEMINI_GENERATION_TIMEOUT_SECONDS` (default 180, maximum 240) per Gemini request and LOW thinking
-for Gemini 3 models. Timeouts and network failures try the next configured fallback, as do supported
+for Gemini 3 models. The output-token allowance scales from 2,048 for a small issue up to 65,536
+for a very large one based on contributors, notes and source length. Timeouts and network failures
+try the next configured fallback, as do supported
 provider errors. Source loading, all model fallbacks, and the corrective validation request share a
 480-second wall-clock budget, preserving room for DB completion within the ten-minute lease.
 Timeouts preserve the source snapshot and record an actionable failure. Retry the existing edition

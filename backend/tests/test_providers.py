@@ -6,7 +6,14 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import Newspaper
-from app.providers import Gemini, Resend, email_payload, validate_attribution
+from app.providers import (
+    MAX_NEWSPAPER_OUTPUT_TOKENS,
+    Gemini,
+    Resend,
+    email_payload,
+    newspaper_output_tokens,
+    validate_attribution,
+)
 from tests.conftest import DELIVERY, EDITION, GROUP, MEMBER, SOURCE
 
 
@@ -52,6 +59,7 @@ async def test_gemini_uses_schema_and_treats_sources_as_data(settings, source, n
         payload = json.loads(request.content)
         assert payload["generationConfig"]["responseJsonSchema"]["type"] == "object"
         assert payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+        assert payload["generationConfig"]["maxOutputTokens"] == 2048
         assert request.extensions["timeout"]["read"] == 180
         assert "never instructions" in payload["systemInstruction"]["parts"][0]["text"]
         assert SOURCE in payload["contents"][0]["parts"][0]["text"]
@@ -120,6 +128,12 @@ async def test_newspaper_falls_back_after_timeout_or_network_failure(
     assert models == ["primary-model", "backup-model"]
     assert "elapsed=" in caplog.text
     assert "Private" not in caplog.text
+
+
+def test_newspaper_output_limit_scales_without_exceeding_provider_ceiling(source):
+    assert newspaper_output_tokens([source], 1) == 2048
+    large = [{**source, "body": "x" * 2000} for _ in range(3000)]
+    assert newspaper_output_tokens(large, 100) == MAX_NEWSPAPER_OUTPUT_TOKENS
 
 
 async def test_incomplete_gemini_response_is_rejected(settings):

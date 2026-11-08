@@ -121,6 +121,16 @@ MAX_CONTRIBUTORS = 100
 MAX_SOURCES = MAX_CONTRIBUTORS * 30  # 30 notes per person per week (see 0004_notes_location.sql)
 SOURCE_FIELDS = ("reflection_id", "user_id", "display_name", "recorded_at", "city", "body")
 QUOTED = re.compile(r"[\"“”]([^\"“”]+)[\"“”]")
+MIN_NEWSPAPER_OUTPUT_TOKENS = 2048
+MAX_NEWSPAPER_OUTPUT_TOKENS = 65536
+
+
+def newspaper_output_tokens(sources: list[dict], contributors: int) -> int:
+    """Scale output room to the issue instead of making every small issue reserve 65K tokens."""
+    source_chars = sum(len(str(row.get("body") or "")) for row in sources)
+    estimate = 1024 + contributors * 512 + len(sources) * 128 + source_chars // 4
+    rounded = ((estimate + 255) // 256) * 256
+    return min(MAX_NEWSPAPER_OUTPUT_TOKENS, max(MIN_NEWSPAPER_OUTPUT_TOKENS, rounded))
 
 
 def _words(text: str) -> str:
@@ -171,7 +181,14 @@ class Gemini:
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
         self.settings, self.client = settings, client
 
-    async def structured(self, rules: str, parts: list[dict], schema: dict) -> dict:
+    async def structured(
+        self,
+        rules: str,
+        parts: list[dict],
+        schema: dict,
+        *,
+        max_output_tokens: int = MAX_NEWSPAPER_OUTPUT_TOKENS,
+    ) -> dict:
         key = self.settings.gemini_api_key.get_secret_value()
         if not key:
             raise HTTPException(503, "Gemini is not configured; text reflections remain available")
@@ -203,8 +220,7 @@ class Gemini:
                                 "responseMimeType": "application/json",
                                 "responseJsonSchema": schema,
                                 "temperature": 0.2,
-                                # Room for long issues: stories have no word limit.
-                                "maxOutputTokens": 65536,
+                                "maxOutputTokens": max_output_tokens,
                                 **(
                                     {"thinkingConfig": {"thinkingLevel": "LOW"}}
                                     if model.startswith("gemini-3")
@@ -285,10 +301,16 @@ class Gemini:
             default=str,
         )
         parts = [{"text": request}]
+        max_output_tokens = newspaper_output_tokens(sources, len(contributors))
         # One corrective retry: tell the model exactly which rule it broke. Job-level retries with
         # backoff still apply if this also fails.
         for attempt in range(2):
-            data = await self.structured(rules, parts, gemini_schema(Newspaper))
+            data = await self.structured(
+                rules,
+                parts,
+                gemini_schema(Newspaper),
+                max_output_tokens=max_output_tokens,
+            )
             try:
                 content = Newspaper.model_validate(data)
                 validate_attribution(content, sources)
