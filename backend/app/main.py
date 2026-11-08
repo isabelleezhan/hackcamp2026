@@ -1,4 +1,5 @@
 import hmac
+import math
 import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -491,6 +492,21 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         )
         if not rows:
             raise HTTPException(404, "Edition not found")
+        edition_row = rows[0]
+        if edition_row["status"] == "published":
+            raise HTTPException(409, "This edition is already published")
+        if next_attempt := edition_row.get("next_attempt_at"):
+            wait = math.ceil(
+                (
+                    datetime.fromisoformat(next_attempt.replace("Z", "+00:00")) - datetime.now(UTC)
+                ).total_seconds()
+            )
+            if wait > 0:
+                raise HTTPException(
+                    429,
+                    f"This edition can be retried in {wait} seconds. Your notes are saved.",
+                    headers={"Retry-After": str(wait)},
+                )
         # Worker leases and next_attempt_at backoff still apply. Never reset a sent delivery.
         background.add_task(jobs.process_edition, str(edition_id))
         return {

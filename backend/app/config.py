@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-3.5-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
+    # Two generation/validation attempts must stay within the 10-minute worker lease.
+    gemini_generation_timeout_seconds: int = Field(default=180, ge=1, le=240)
     gemini_transcription_model: str = "gemini-3.5-transcribe"
     gemini_fallback_models: str = "gemini-3.8-flash,gemini-3.5-flash-lite"
     resend_api_key: SecretStr = SecretStr("")

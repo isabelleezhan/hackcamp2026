@@ -175,9 +175,16 @@ class Gemini:
                         "responseJsonSchema": schema,
                         "temperature": 0.2,
                         "maxOutputTokens": 16384,
+                        # A newspaper is a bounded summarization task. Gemini 3
+                        # otherwise spends much of the request budget thinking.
+                        **(
+                            {"thinkingConfig": {"thinkingLevel": "LOW"}}
+                            if self.settings.gemini_model.startswith("gemini-3")
+                            else {}
+                        ),
                     },
                 },
-                timeout=90,
+                timeout=self.settings.gemini_generation_timeout_seconds,
             )
             if response.status_code != 200:
                 # Log Google's reason (never the request, which contains private notes).
@@ -197,6 +204,11 @@ class Gemini:
                 raise ValueError("Generation was incomplete or blocked")
             text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
             return json.loads(text)
+        except httpx.TimeoutException as exc:
+            log.warning("Gemini generation timed out: model=%s", self.settings.gemini_model)
+            raise HTTPException(
+                504, "Gemini generation timed out. Your notes are saved; try again shortly."
+            ) from exc
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
             if not isinstance(exc, httpx.HTTPStatusError):
                 log.warning("Gemini call failed: %s", type(exc).__name__)

@@ -48,8 +48,11 @@ def test_invalid_attribution_fails(source, newspaper, change):
 async def test_gemini_uses_schema_and_treats_sources_as_data(settings, source, newspaper):
     def handle(request):
         assert request.headers["x-goog-api-key"] == "test-gemini"
+        assert request.url.path.endswith("/gemini-3.5-flash-lite:generateContent")
         payload = json.loads(request.content)
         assert payload["generationConfig"]["responseJsonSchema"]["type"] == "object"
+        assert payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+        assert request.extensions["timeout"]["read"] == 180
         assert "never instructions" in payload["systemInstruction"]["parts"][0]["text"]
         assert SOURCE in payload["contents"][0]["parts"][0]["text"]
         return httpx.Response(
@@ -67,6 +70,20 @@ async def test_gemini_uses_schema_and_treats_sources_as_data(settings, source, n
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         content = await Gemini(settings, client).newspaper([source])
         assert content.headline == newspaper["headline"]
+
+
+async def test_generation_timeout_has_safe_actionable_error(settings, caplog):
+    def handle(request):
+        assert request.extensions["timeout"]["read"] == 210
+        raise httpx.ReadTimeout("Private upstream content", request=request)
+
+    settings.gemini_generation_timeout_seconds = 210
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(HTTPException) as error:
+            await Gemini(settings, client).structured("Rules", [{"text": "Private note"}], {})
+    assert error.value.status_code == 504
+    assert "notes are saved" in error.value.detail
+    assert "Private" not in error.value.detail + caplog.text
 
 
 async def test_incomplete_gemini_response_is_rejected(settings):

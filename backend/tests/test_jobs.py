@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.jobs import Jobs
 from app.models import Newspaper
@@ -36,6 +37,22 @@ async def test_failed_generation_preserves_sources_and_schedules_retry(settings)
     assert "Private" not in write.args[2]["generation_error"]
     assert write.kwargs["lease_token"] == f"eq.{LEASE}"
     assert "content" not in write.args[2]
+    resend.send.assert_not_called()
+
+
+async def test_timeout_keeps_snapshot_and_records_retryable_failure(settings):
+    store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
+    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 1}]
+    gemini.newspaper.side_effect = HTTPException(504, "Private provider response")
+    assert not await Jobs(settings, store, gemini, resend).generate(EDITION)
+    write = store.write.call_args
+    assert write.args[1] == "editions"
+    assert write.args[2]["status"] == "failed"
+    assert "timed out" in write.args[2]["generation_error"]
+    assert "Private" not in write.args[2]["generation_error"]
+    assert write.args[2]["next_attempt_at"]
+    assert "content" not in write.args[2]
+    assert write.kwargs["lease_token"] == f"eq.{LEASE}"
     resend.send.assert_not_called()
 
 

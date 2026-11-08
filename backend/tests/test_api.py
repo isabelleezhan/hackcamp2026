@@ -1,5 +1,7 @@
 import io
 import wave
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -7,11 +9,47 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth import SupabaseIdentity
+from app.jobs import Jobs
 from app.main import create_app
 from app.providers import Gemini
 from tests.conftest import EDITION, GROUP, OWNER, PERIOD
 
 AUTH = {"Authorization": "Bearer user-session"}
+
+
+@pytest.mark.parametrize(
+    "status,delay,expected", [("failed", 120, 429), ("published", -1, 409), ("failed", -1, 202)]
+)
+def test_generation_retry_reports_backoff_and_only_queues_eligible_issue(
+    settings, monkeypatch, status, delay, expected
+):
+    process = AsyncMock()
+    monkeypatch.setattr(Jobs, "process_edition", process)
+
+    def handler(request):
+        assert request.url.path == "/rest/v1/editions"
+        assert request.url.params["group_id"] == f"eq.{GROUP}"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": EDITION,
+                    "status": status,
+                    "next_attempt_at": (datetime.now(UTC) + timedelta(seconds=delay)).isoformat(),
+                }
+            ],
+        )
+
+    with make_client(settings, handler) as client:
+        response = client.post(f"/groups/{GROUP}/editions/{EDITION}/retry", headers=AUTH)
+    assert response.status_code == expected
+    if expected == 429:
+        assert 1 <= int(response.headers["Retry-After"]) <= delay
+        assert "notes are saved" in response.json()["detail"]
+    if expected == 202:
+        process.assert_awaited_once_with(EDITION)
+    else:
+        process.assert_not_called()
 
 
 def make_client(settings, handler=None, role="organizer", member=True):

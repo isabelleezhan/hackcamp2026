@@ -55,6 +55,7 @@ export function EditionState({
         }
       >
         Everyone's notes are saved. {organizer ? 'Try again in a moment.' : 'Your organizer can try again.'}
+        {edition.generation_error && <p className="mt-2">{edition.generation_error}</p>}
       </GlassNotice>
     )
   }
@@ -96,6 +97,7 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
   const [edition, setEdition] = useState<Edition | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const view: EditionViewMode = params.get('view') === 'email' ? 'email' : 'app'
   const [email, setEmail] = useState<EmailMessage | null>(null)
@@ -140,11 +142,12 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
 
   async function retry() {
     setRetrying(true)
+    setRetryError(null)
     try {
       await api(`/groups/${groupId}/editions/${editionId}/retry`, { method: 'POST' })
       setEdition((e) => (e ? { ...e, status: 'pending' } : e))
-    } catch {
-      setError("Couldn't start a retry. Try again in a minute.")
+    } catch (cause) {
+      setRetryError(cause instanceof Error ? cause.message : "Couldn't start a retry. Try again in a minute.")
     } finally {
       setRetrying(false)
     }
@@ -153,6 +156,7 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
   return (
     <div className="grid gap-[14px]">
       {back}
+      {retryError && <p role="alert" className="rounded-xl border border-card-line bg-card p-3 text-[14px]">{retryError}</p>}
       {error ? (
         <GlassNotice title="Issue not available">{error}</GlassNotice>
       ) : !edition ? (

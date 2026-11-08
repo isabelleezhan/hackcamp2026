@@ -43,15 +43,20 @@ class Jobs:
                 },
                 admin=True,
             )
-        except Exception:
+        except Exception as exc:
             # Persist a safe error without source text or provider response bodies.
-            logger.warning("Generation failed for edition %s", edition_id)
+            logger.warning("Generation failed for edition %s: %s", edition_id, type(exc).__name__)
+            error_message = (
+                "Gemini generation timed out. Your notes are saved; try again shortly."
+                if isinstance(exc, HTTPException) and exc.status_code == 504
+                else "Generation failed validation or provider request; retry scheduled"
+            )
             await self.store.write(
                 "PATCH",
                 "editions",
                 {
                     "status": "failed",
-                    "generation_error": "Generation failed validation or provider request; retry scheduled",
+                    "generation_error": error_message,
                     "next_attempt_at": retry_at(claim["generation_attempts"]),
                     "lease_token": None,
                     "lease_expires_at": None,

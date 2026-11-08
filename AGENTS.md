@@ -77,6 +77,7 @@ round avatar pins, frosted-glass sheet, record button).
   - names and bylines are attached from the database, not from model text;
   - on failure, retry once with the error, then mark the edition `failed` (notes are kept; the organizer can retry).
 - Repeated publish requests never create a second edition (`editions.period_id` is UNIQUE).
+- Gemini generation has a configurable 180-second request timeout (maximum 240) and uses LOW thinking for Gemini 3 models. Timeout failures preserve the snapshot. Retry the existing edition; active backoff returns HTTP 429 with `Retry-After`, and published editions reject regeneration with HTTP 409.
 
 ### 5. Delivery
 - n8n calls `POST /internal/editions/{id}/deliver`, which emails every **current member with
@@ -99,7 +100,7 @@ round avatar pins, frosted-glass sheet, record button).
 - Both group voice notes and standalone audio use the shared transcription service,
   `GEMINI_TRANSCRIPTION_MODEL` and `GEMINI_FALLBACK_MODELS`. They do not use the newspaper
   model. Transcription failures retain group audio and expose a safe actionable error.
-- Newspaper model comes from `GEMINI_MODEL` (default `gemini-3.8-flash`). Use structured output (`response_schema`) with Pydantic models.
+- Newspaper model comes from `GEMINI_MODEL` (default `gemini-3.5-flash-lite`, selected for lower latency). Use structured output (`response_schema`) with Pydantic models.
 - The standalone audio prototype uses `GEMINI_TRANSCRIPTION_MODEL` (default `gemini-3.5-transcribe`) and configurable `GEMINI_FALLBACK_MODELS`. It is mounted at `POST /audio/transcribe`, requires a verified Supabase account, and returns `{text}` without storing audio.
 
 ## Edition content shape (stored in `editions.content`)
