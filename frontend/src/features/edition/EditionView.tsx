@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import Avatar from '../../components/Avatar'
-import type { Edition, MemberUpdate, Newspaper, Story } from '../../lib/types'
+import { api } from '../../lib/api'
+import type { Edition, EditionImage, MemberUpdate, Newspaper, Story } from '../../lib/types'
 import { smart } from '../../lib/typography'
 
 type Props = {
@@ -50,6 +52,42 @@ function Briefs({ title, items }: { title: string; items: Story[] }) {
   )
 }
 
+function IssueImages({ groupId, editionId }: { groupId: string; editionId: string }) {
+  const [images, setImages] = useState<EditionImage[]>([])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    api<EditionImage[]>(`/groups/${groupId}/editions/${editionId}/images`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then(setImages)
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [editionId, groupId])
+
+  if (!images.length) return null
+  return (
+    <section className="mt-1 border-t border-card-line pt-3" aria-labelledby="issue-photos-heading">
+      <h3 id="issue-photos-heading" className="mb-3 text-[12.5px] font-semibold text-card-muted">
+        Photos from the week
+      </h3>
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {images.map((image) => (
+          <li key={image.id} className="aspect-square overflow-hidden rounded-xl bg-chip">
+            <img
+              src={image.url}
+              alt={image.caption}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 /** This week's paper, in the globe prototype's style. Renders validated JSON only, never HTML. */
 export default function EditionView({ edition, groupName, timeZone }: Props) {
   const paper = edition.content
@@ -73,6 +111,7 @@ export default function EditionView({ edition, groupName, timeZone }: Props) {
         </div>
         <h2 className="font-reading text-[26px] font-bold leading-[1.15] text-balance">{smart(paper.headline)}</h2>
         <p className="font-reading text-[17px] leading-[1.6] text-card-ink/85">{smart(paper.introduction)}</p>
+        <IssueImages groupId={edition.group_id} editionId={edition.id} />
       </section>
 
       {paper.member_updates.map((story) => (

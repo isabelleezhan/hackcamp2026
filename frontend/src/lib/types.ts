@@ -36,6 +36,15 @@ export type Edition = {
   created_at: string
 }
 
+export type EditionImage = {
+  id: string
+  reflection_id: string
+  mime_type: ReflectionImage['mime_type']
+  caption: string
+  recorded_at: string | null
+  url: string
+}
+
 export type Group = {
   id: string
   name: string

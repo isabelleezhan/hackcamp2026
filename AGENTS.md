@@ -202,7 +202,8 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   location on new notes, recorder/upload with transcript review and manual fallback, weekly
   limits, organizer publish confirmation, and note-image attachments (up to six private
   JPEG/PNG/WebP/GIF files per note, with composer previews and saved-note thumbnails). Existing
-  edition UI handles generation/retry.
+  edition UI handles generation/retry. Published issues show one combined image gallery beneath the
+  opening weekly summary, using only images from snapshotted notes and sorting by note date newest-first.
   Failed requests retain drafts; closed weeks cannot be edited. Empty publishes create no paper/email.
 - **Frontend navigation caching:** authenticated GET responses use a 30-second, memory-only
   cache (128 entries) with concurrent request deduplication. Writes and account changes clear it;

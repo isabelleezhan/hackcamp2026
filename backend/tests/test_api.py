@@ -246,6 +246,60 @@ def test_image_url_checks_note_ownership_and_signs_private_object(settings):
     assert result.json()["url"].endswith("/object/sign/reflection-images/token")
 
 
+def test_published_edition_images_are_scoped_to_snapshot_and_sorted_newest_first(settings):
+    older_note = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    newer_note = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    older_image = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    newer_image = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+    def handler(request):
+        if request.url.path == "/rest/v1/editions":
+            assert request.url.params["status"] == "eq.published"
+            return httpx.Response(200, json=[{"id": EDITION}])
+        if request.url.path == "/rest/v1/edition_sources":
+            assert request.url.params["edition_id"] == f"eq.{EDITION}"
+            return httpx.Response(
+                200,
+                json=[
+                    {"reflection_id": older_note, "recorded_at": "2026-11-01T12:00:00Z"},
+                    {"reflection_id": newer_note, "recorded_at": "2026-11-06T12:00:00Z"},
+                ],
+            )
+        if request.url.path == "/rest/v1/reflection_images":
+            ids = request.url.params["reflection_id"]
+            assert older_note in ids and newer_note in ids
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": older_image,
+                        "reflection_id": older_note,
+                        "storage_path": f"{GROUP}/{OWNER}/{older_note}/{older_image}.jpg",
+                        "mime_type": "image/jpeg",
+                        "caption": "Older",
+                        "created_at": "2026-11-01T12:01:00Z",
+                    },
+                    {
+                        "id": newer_image,
+                        "reflection_id": newer_note,
+                        "storage_path": f"{GROUP}/{OWNER}/{newer_note}/{newer_image}.png",
+                        "mime_type": "image/png",
+                        "caption": "Newer",
+                        "created_at": "2026-11-06T12:01:00Z",
+                    },
+                ],
+            )
+        if request.url.path.startswith("/storage/v1/object/sign/reflection-images/"):
+            return httpx.Response(200, json={"signedURL": f"/object/sign/{request.url.path.rsplit('/', 1)[-1]}"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    with make_client(settings, handler) as client:
+        result = client.get(f"/groups/{GROUP}/editions/{EDITION}/images", headers=AUTH)
+    assert result.status_code == 200
+    assert [image["id"] for image in result.json()] == [newer_image, older_image]
+    assert result.json()[0]["recorded_at"] == "2026-11-06T12:00:00Z"
+
+
 def test_rejects_mismatched_image_contents_before_storage_write(settings):
     note = "55555555-5555-4555-8555-555555555555"
 

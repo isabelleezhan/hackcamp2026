@@ -762,6 +762,70 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             raise HTTPException(404, "Edition not found")
         return rows[0]
 
+    @app.get("/groups/{group_id}/editions/{edition_id}/images", tags=["Editions"])
+    async def edition_images(group_id: UUID, edition_id: UUID, user: User, store: Database):
+        """Return this published issue's note images, newest note first."""
+        await membership(store, user, group_id)
+        editions = await store.rows(
+            "editions",
+            admin=True,
+            id=f"eq.{edition_id}",
+            group_id=f"eq.{group_id}",
+            status="eq.published",
+            select="id",
+        )
+        if not editions:
+            raise HTTPException(404, "Published edition not found")
+
+        sources = await store.rows(
+            "edition_sources",
+            admin=True,
+            edition_id=f"eq.{edition_id}",
+            select="reflection_id,recorded_at",
+        )
+        recorded_at = {str(row["reflection_id"]): row.get("recorded_at") for row in sources}
+        reflection_ids = list(recorded_at)
+        images: list[dict] = []
+        # Keep PostgREST query URLs bounded for large groups.
+        for start in range(0, len(reflection_ids), 100):
+            batch = reflection_ids[start : start + 100]
+            images.extend(
+                await store.rows(
+                    "reflection_images",
+                    admin=True,
+                    reflection_id=f"in.({','.join(batch)})",
+                    select="id,reflection_id,storage_path,mime_type,caption,created_at",
+                )
+            )
+
+        images.sort(
+            key=lambda image: (
+                recorded_at.get(str(image["reflection_id"])) or "",
+                image.get("created_at") or "",
+                str(image["id"]),
+            ),
+            reverse=True,
+        )
+        result = []
+        for image in images:
+            signed = await store.request(
+                "POST",
+                f"/storage/v1/object/sign/reflection-images/{quote(image['storage_path'], safe='/')}",
+                admin=True,
+                json={"expiresIn": 600},
+            )
+            result.append(
+                {
+                    "id": image["id"],
+                    "reflection_id": image["reflection_id"],
+                    "mime_type": image["mime_type"],
+                    "caption": image.get("caption") or "",
+                    "recorded_at": recorded_at.get(str(image["reflection_id"])),
+                    "url": f"{settings.supabase_url}/storage/v1{signed['signedURL']}",
+                }
+            )
+        return result
+
     @app.get("/groups/{group_id}/editions/{edition_id}/email-preview", tags=["Editions"])
     async def email_preview(group_id: UUID, edition_id: UUID, user: User, store: Database):
         """The exact edition email this member would receive (subject, HTML and plain text)."""
