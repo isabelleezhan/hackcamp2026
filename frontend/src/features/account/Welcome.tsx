@@ -11,7 +11,7 @@ import { useProfile } from './context'
 export default function Welcome() {
   const { profile, loading } = useProfile()
   if (loading) return null
-  if (!profile) return <Navigate to="/" replace />
+  if (!profile) return <Navigate to="/groups" replace />
   // Build the form only once the profile has loaded, so the fields start with saved values.
   return <WelcomeForm key={profile.id} profile={profile} />
 }
@@ -20,7 +20,7 @@ function WelcomeForm({ profile }: { profile: Profile }) {
   const { update } = useProfile()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as { from?: string } | null)?.from ?? '/'
+  const from = (location.state as { from?: string } | null)?.from ?? '/groups'
   const [name, setName] = useState(profile?.display_name ?? '')
   // Already placed on the map? Keep that unless they pick a new city.
   const [picked, setPicked] = useState<CityMatch | null>(

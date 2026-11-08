@@ -10,8 +10,8 @@ export default function Login() {
   const location = useLocation()
   const navigate = useNavigate()
   const state = location.state as { from?: string; mode?: Mode; reauthenticate?: boolean } | null
-  const target = state?.from ?? '/'
-  const from = target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/login') ? target : '/'
+  const target = state?.from ?? '/groups'
+  const from = target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/login') ? target : '/groups'
   const resetting = passwordRecovery || new URLSearchParams(location.search).get('reset') === '1'
   const [mode, setMode] = useState<Mode>(state?.mode ?? 'signin')
   const currentMode = resetting ? 'reset' : mode

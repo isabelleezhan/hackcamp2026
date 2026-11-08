@@ -34,7 +34,7 @@ export default function JoinPage() {
         {error && (
           <p className="text-[15px] text-glass-text/80">
             {error}{' '}
-            <Link to="/" className={link}>
+            <Link to="/groups" className={link}>
               Go to your groups
             </Link>
           </p>

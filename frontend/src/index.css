@@ -42,6 +42,50 @@ body {
   @apply bg-paper text-ink font-sans antialiased;
 }
 
+/* Landing page motion stays subtle and respects the reader's motion settings. */
+@keyframes landing-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing-enter { animation: landing-enter 650ms cubic-bezier(.2, .7, .2, 1) both; }
+.landing-enter-late { animation-delay: 100ms; }
+.landing-paper { animation: landing-enter 800ms 180ms cubic-bezier(.2, .7, .2, 1) both; }
+.landing-card { transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease; }
+.landing-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgb(36 56 92 / .10); background-color: rgb(255 255 255 / .95); }
+.landing-endcap {
+  background:
+    radial-gradient(35% 48% at 84% 78%, rgb(74 155 232 / .20), transparent 100%),
+    linear-gradient(180deg, transparent 0%, #e5eafa 24%, #e9e8fb 58%, #d6e9fc 100%);
+}
+.landing-footer { background: transparent; }
+.landing-wordmark { display: block; width: 100vw; height: 26vw; flex: none; margin-inline: auto; object-fit: cover; object-position: center 50%; filter: brightness(0) saturate(100%); }
+.landing-mail { position: absolute; z-index: 1; width: clamp(4.5rem, 10vw, 9rem); overflow: visible; filter: drop-shadow(0 12px 12px rgb(36 56 92 / .18)); }
+.landing-mail-one { top: 43%; left: 17%; animation: mail-drift-one 7s ease-in-out infinite; }
+.landing-mail-two { top: 30%; left: 53%; width: clamp(5rem, 12vw, 11rem); animation: mail-drift-two 8s ease-in-out infinite; }
+.landing-mail-three { top: 47%; right: 11%; width: clamp(5.5rem, 14vw, 12rem); animation: mail-drift-three 9s ease-in-out infinite; }
+@keyframes mail-drift-one {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-12deg); }
+  50% { transform: translate3d(0, -12px, 0) rotate(-6deg); }
+}
+@keyframes mail-drift-two {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(8deg); }
+  50% { transform: translate3d(0, -16px, 0) rotate(1deg); }
+}
+@keyframes mail-drift-three {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(13deg); }
+  50% { transform: translate3d(0, -11px, 0) rotate(6deg); }
+}
+@media (max-width: 639px) {
+  .landing-mail-two { display: none; }
+  .landing-mail-one { top: 49%; left: 9%; width: 3.75rem; }
+  .landing-mail-three { top: 44%; right: 8%; width: 4.5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-enter, .landing-paper { animation: none; }
+  .landing-card, .landing-card:hover { transition: none; transform: none; }
+  .landing-mail { animation: none; }
+}
+
 /* Pale sky with soft cloud light, for pages without the 3D globe. */
 .sky {
   background:

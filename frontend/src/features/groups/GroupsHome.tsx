@@ -8,7 +8,7 @@ import { api, ApiError } from '../../lib/api'
 import type { GroupSummary } from '../../lib/types'
 import { useProfile } from '../account/context'
 
-/** "/": your groups, create one, or join with a code. */
+/** "/groups": your groups, create one, or join with a code. */
 export default function GroupsHome() {
   const { profile } = useProfile()
   const { user, signOut } = useAuth()

@@ -13,6 +13,7 @@ import PeopleTab, { PersonView } from './features/group/PeopleTab'
 import GroupsHome from './features/groups/GroupsHome'
 import JoinPage from './features/groups/JoinPage'
 import DevTools from './pages/DevTools'
+import LandingPage from './pages/LandingPage'
 import Login from './pages/Login'
 
 // Development-only template preview (no backend or sign-in needed).
@@ -38,7 +39,8 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/welcome" element={<RequireAuth><Welcome /></RequireAuth>} />
-            <Route path="/" element={signedIn(<GroupsHome />)} />
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/groups" element={signedIn(<GroupsHome />)} />
             <Route path="/join" element={signedIn(<JoinPage />)} />
             <Route path="/groups/:groupId" element={signedIn(<GroupLayout />)}>
               {/* Two tabs: Weekly news (index) and People. Notes open from the compose button (?compose=). */}
@@ -57,7 +59,7 @@ export default function App() {
             {import.meta.env.DEV && (
               <Route path="/preview/edition" element={<Suspense><PreviewEdition /></Suspense>} />
             )}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/groups" replace />} />
           </Routes>
         </AccountProvider>
       </AuthProvider>

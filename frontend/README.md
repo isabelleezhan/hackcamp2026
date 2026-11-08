@@ -76,7 +76,8 @@ uses port 8000. Source: `mock/server.mjs`.
 |---|---|---|---|
 | `/login` | Sign in / create account (Supabase Auth) | `pages/Login.tsx` | Built |
 | `/welcome` | First run: name + approximate location or typed city | `features/account/Welcome.tsx` | Built |
-| `/` | Your groups, start a group, join with a code | `features/groups/GroupsHome.tsx` | Built |
+| `/` | Public landing page | `pages/LandingPage.tsx` | Built |
+| `/groups` | Your groups, start a group, join with a code | `features/groups/GroupsHome.tsx` | Built |
 | `/join?code=…` | Invite link: joins and opens the group | `features/groups/JoinPage.tsx` | Built |
 | `/groups/:groupId` | **Group layout**: globe + frosted sheet + tab bar, loads group data once | `features/group/GroupLayout.tsx` | Built |
 | ↳ (index) | **People** tab: who wrote this week, local times | `features/group/PeopleTab.tsx` | Built |

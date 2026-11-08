@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: session.user.user_metadata?.display_name ?? session.user.email ?? '',
       emailVerified: Boolean(session.user.email_confirmed_at),
     } : null,
-    signIn: (returnTo = '/') => {
+    signIn: (returnTo = '/groups') => {
       if (!supabase) return
       void supabase.auth.signOut({ scope: 'local' }).then(({ error: logoutError }) => {
         if (logoutError) { setError(logoutError.message); return }
@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         navigate('/login', { state: { from: returnTo, reauthenticate: true } })
       }).catch(() => setError('Could not reset your session. Please try again.'))
     },
-    signUp: (returnTo = '/') => navigate('/login', { state: { from: returnTo, mode: 'signup' } }),
+    signUp: (returnTo = '/groups') => navigate('/login', { state: { from: returnTo, mode: 'signup' } }),
     signOut: () => {
       if (!supabase) return
       void supabase.auth.signOut({ scope: 'local' }).then(({ error: logoutError }) => {

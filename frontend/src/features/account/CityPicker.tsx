@@ -36,8 +36,10 @@ export default function CityPicker({
   function search(q: string) {
     clearTimeout(timer.current)
     request.current?.abort()
+    setMatches([])
+    setOpen(false)
+    setActive(0)
     if (q.trim().length < 2) {
-      setMatches([])
       setState('idle')
       return
     }
