@@ -65,12 +65,21 @@ class ProfileUpdate(Location):
 
 class GroupCreate(StrictModel):
     name: str = Field(min_length=1, max_length=120)
-    timezone: str = "America/Vancouver"
+    timezone: Literal["America/Vancouver"] = "America/Vancouver"
 
-    @field_validator("timezone")
-    @classmethod
-    def known_timezone(cls, value: str) -> str:
-        return valid_timezone(value)
+
+class PublicationSchedule(StrictModel):
+    mode: Literal["weekly", "interval"]
+    weekday: int | None = Field(default=None, ge=0, le=6, strict=True)
+    interval_days: int | None = Field(default=None, ge=1, le=365, strict=True)
+
+    @model_validator(mode="after")
+    def valid_schedule(self):
+        if self.mode == "weekly" and (self.weekday is None or self.interval_days is not None):
+            raise ValueError("Weekly schedules require a weekday only (Monday=0, Sunday=6)")
+        if self.mode == "interval" and (self.interval_days is None or self.weekday is not None):
+            raise ValueError("Interval schedules require a whole number of days only")
+        return self
 
 
 class GroupJoin(StrictModel):

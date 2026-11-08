@@ -16,11 +16,42 @@ const sampleEdition = JSON.parse(readFileSync(new URL('sample-edition.json', dir
 const sampleEmail = JSON.parse(readFileSync(new URL('sample-email.json', dir)))
 
 const now = () => new Date().toISOString()
-const nextSunday6pm = () => {
-  const d = new Date()
-  d.setDate(d.getDate() + ((7 - d.getDay()) % 7 || 7))
-  d.setHours(18, 0, 0, 0)
-  return d.toISOString()
+const DAY = 86400000
+function localDay(timezone, at = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at).map(({ type, value }) => [type, value]))
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`)
+}
+function cutoffForDate(publication, timezone) {
+  const wallClock = publication.getTime() - 60000 // Previous day, 23:59 in the group zone.
+  let instant = wallClock
+  for (let i = 0; i < 3; i++) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(instant)).map(({ type, value }) => [type, value]))
+    const represented = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second))
+    instant += wallClock - represented
+  }
+  return new Date(instant)
+}
+function nextCutoff(group) {
+  const today = localDay(group.timezone)
+  const step = group.publication_mode === 'interval' ? group.publication_interval_days : 7
+  let publication
+  if (group.publication_mode === 'interval') {
+    const anchor = new Date(`${group.publication_anchor_date}T00:00:00Z`)
+    publication = new Date(anchor.getTime() + Math.max(1, Math.floor((today - anchor) / DAY / step)) * step * DAY)
+  } else {
+    publication = new Date(today.getTime() + ((group.publication_weekday - (today.getUTCDay() + 6) % 7 + 7) % 7) * DAY)
+  }
+  let cutoff = cutoffForDate(publication, group.timezone)
+  while (cutoff <= new Date()) {
+    publication = new Date(publication.getTime() + step * DAY)
+    cutoff = cutoffForDate(publication, group.timezone)
+  }
+  return cutoff.toISOString()
 }
 
 // ---------- seed ----------
@@ -45,15 +76,18 @@ const reflections = {} // id → note
 const editions = {} // id → edition
 
 function createGroup(name, timezone, ownerId, id = randomUUID()) {
+  timezone = 'America/Vancouver'
   const code = Array.from({ length: 8 }, () => '23456789ABCDEFGHJKMNPQRSTUVWXYZ'[Math.floor(Math.random() * 31)]).join('')
-  groups[id] = { id, name, join_code: code, timezone, created_by: ownerId, created_at: now() }
+  groups[id] = { id, name, join_code: code, timezone, created_by: ownerId, created_at: now(),
+    publication_mode: 'weekly', publication_weekday: 6, publication_interval_days: null,
+    publication_anchor_date: localDay(timezone).toISOString().slice(0, 10) }
   memberships.push({ group_id: id, user_id: ownerId, role: 'organizer', email_enabled: false })
   openPeriod(id)
   return groups[id]
 }
-function openPeriod(groupId) {
+function openPeriod(groupId, deadline = nextCutoff(groups[groupId])) {
   const id = randomUUID()
-  periods[id] = { id, group_id: groupId, starts_at: now(), deadline_at: nextSunday6pm(), closed_at: null }
+  periods[id] = { id, group_id: groupId, starts_at: now(), deadline_at: deadline, closed_at: null }
   return periods[id]
 }
 const currentPeriod = (gid) => Object.values(periods).find((p) => p.group_id === gid && !p.closed_at)
@@ -133,6 +167,23 @@ route('POST', '/groups/join', ({ body }) => {
   return { id: g.id }
 })
 route('GET', '/groups/:gid', ({ p }) => groupView(groups[p.gid]))
+route('PUT', '/groups/:gid/schedule', ({ p, body }) => {
+  const group = groups[p.gid]
+  if (!group) return [404, { detail: 'Group not found' }]
+  if (membership(p.gid)?.role !== 'organizer') return [403, { detail: 'Organizer required' }]
+  if (!(body.mode === 'weekly' && Number.isInteger(body.weekday) && body.weekday >= 0 && body.weekday <= 6 && body.interval_days == null) &&
+      !(body.mode === 'interval' && Number.isInteger(body.interval_days) && body.interval_days >= 1 && body.interval_days <= 365 && body.weekday == null)) {
+    return [422, { detail: 'Choose a weekday or 1–365 whole days.' }]
+  }
+  const changed = group.publication_mode !== body.mode || group.publication_weekday !== (body.weekday ?? null) || group.publication_interval_days !== (body.interval_days ?? null)
+  if (changed) {
+    Object.assign(group, { publication_mode: body.mode, publication_weekday: body.weekday ?? null,
+      publication_interval_days: body.interval_days ?? null, publication_anchor_date: localDay(group.timezone).toISOString().slice(0, 10) })
+    const period = currentPeriod(p.gid)
+    if (period && new Date(period.deadline_at) > new Date()) period.deadline_at = nextCutoff(group)
+  }
+  return group
+})
 route('PUT', '/groups/:gid/email-preference', ({ p, body }) => {
   membership(p.gid).email_enabled = Boolean(body.enabled)
   return { email_enabled: Boolean(body.enabled) }
@@ -192,7 +243,7 @@ route('POST', '/groups/:gid/publish', ({ p, body }) => {
     return [202, { edition_id: existing?.id ?? null, status: existing ? 'queued' : 'empty' }]
   }
   period.closed_at = now()
-  openPeriod(p.gid)
+  openPeriod(p.gid, new Date(period.deadline_at) > new Date() ? period.deadline_at : nextCutoff(groups[p.gid]))
   const notes = Object.values(reflections).filter((r) => r.period_id === period.id && r.status === 'submitted')
   if (!notes.length) return [202, { edition_id: null, status: 'empty' }]
   const id = randomUUID()

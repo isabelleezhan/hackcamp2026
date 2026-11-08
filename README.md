@@ -1,7 +1,7 @@
 # hackcamp2026 — Community Newspaper
 
-Friends and family who live apart send short voice or text notes during the week. Every Sunday at
-6 p.m., Gemini turns everyone's notes into one shared newspaper, shown on a 3D globe of where
+Friends and family who live apart send short voice or text notes. On the group's publication dates,
+Gemini turns everyone's notes into one shared newspaper, shown on a 3D globe of where
 everyone is and emailed to anyone who wants it.
 
 - **How the app works, current decisions, API plan, open questions:** [AGENTS.md](AGENTS.md)
@@ -112,6 +112,11 @@ same `SUPABASE_URL`, `SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_
 FastAPI verifies sessions with Supabase Auth, then uses the service role after explicit route-level membership/ownership checks. Only organizers can publish or retry.
 
 
-`POST /internal/tick` closes due periods and resumes queued or interrupted generation/delivery. Call it frequently from n8n with `X-Worker-Secret`; the scaffold `X-N8N-Secret` header is also supported. Weekly deadlines remain Sunday at 6 p.m. in each group's timezone. See [backend setup](backend/README.md) for configuration, deployment and retry details.
+`POST /internal/tick` closes due periods and resumes queued or interrupted generation/delivery.
+Call it from n8n with `X-Worker-Secret`; the scaffold `X-N8N-Secret` header is also supported.
+Organizers choose every N days or a weekly weekday in Settings. Notes close at 23:59 before the
+publication date in fixed America/Vancouver (Pacific) time; n8n uses that zone and runs daily at 00:01.
+Apply migration 0008 before using
+schedule controls. See [backend setup](backend/README.md) for time zones, batch limits and retry details.
 
 No credentials are checked in. Live provider calls, backend hosting and n8n activation still require local/server configuration.

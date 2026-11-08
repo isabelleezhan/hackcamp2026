@@ -61,7 +61,7 @@ function SheetTabs() {
     <nav aria-label="Sections" className="mx-4 mb-2 grid flex-none grid-cols-2 gap-0.5 rounded-[12px] bg-chip p-0.5">
       {/* Weekly news covers the index, past issues and single issues. */}
       <NavLink to="" end className={() => tab({ isActive: !peopleActive && !settingsActive })}>
-        Weekly news
+        News
       </NavLink>
       <NavLink to="people" className={tab}>
         People

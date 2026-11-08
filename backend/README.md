@@ -162,14 +162,35 @@ Edition content is validated JSON: headline, introduction, attributed member_upd
 
 ## n8n and retries
 
-Create an n8n Schedule Trigger every minute, followed by an HTTP Request:
+Apply `supabase/migrations/0008_publication_schedules.sql` after 0007 before using schedules.
+Organizers use `PUT /groups/{group_id}/schedule` with either `{ "mode": "weekly", "weekday": 0 }`
+(Monday=0 through Sunday=6) or `{ "mode": "interval", "interval_days": 2 }` (1–365 whole days).
+Both routes and the database RPC enforce organizer access; no custom times are accepted.
+The API returns the updated group. A changed schedule updates the future open period atomically,
+while an overdue period keeps its cutoff. Intervals start on the Pacific save date and first publish
+N days later; saving unchanged settings does not reset that date.
+
+Set the n8n workflow's **Settings → Timezone** to **America/Vancouver**. Create a Schedule Trigger
+daily at **00:01**, followed by an HTTP Request:
 
 - Method: POST
-- URL: `https://YOUR-BACKEND/internal/tick?batch_size=1`
+- URL: `https://whydidmyfriendsleavemee.onrender.com/internal/tick?batch_size=1`
 - Header: `X-Worker-Secret: <WORKER_SECRET>` (store as an n8n credential; the scaffold header `X-N8N-Secret` is also supported)
-- Request timeout: at least 180 seconds for batch_size=1; larger batches need a larger timeout.
+- Request timeout: 600000 milliseconds for batch_size=1, subject to hosting/workflow limits.
 
-The database stores the Sunday 6 p.m. cutoff in each group's timezone, so the n8n trigger need not implement timezone logic. A frequent trigger also recovers pending work and interrupted requests. Manual publication uses the same closure/generation/delivery code. This repository provides the endpoint; no n8n Cloud workflow has been activated.
+All publication dates use one fixed zone: **America/Vancouver (Pacific Time)**, regardless of the
+organizer's or members' locations. The database enforces this group zone; member profile zones are
+unchanged. The cutoff is **23:59 Pacific on the day before publication**. Default is Sunday
+publication (Saturday 23:59 cutoff). The daily workflow starts processing at 00:01 Pacific, including
+daylight-saving changes. The issue appears after Gemini finishes. Late runs skip missed dates
+without changing an interval's calendar anchor.
+
+`batch_size` limits each of closures, generation jobs and email deliveries per HTTP call (maximum 10).
+For a daily trigger, loop HTTP Request nodes within the same execution until a tick reports no work,
+or remaining groups/recipients wait for another run. Failed jobs obey backoff; retries need a later
+call. A daily trigger alone delays recovery, and email retries after the 23-hour provider safety
+window require reconciliation (below). Use an additional retry path for failures if needed.
+Manual publication uses the same closure/generation/delivery code.
 
 Generation and delivery use exclusive database leases and separate retry delays (starting at 60 seconds, capped at one hour). Completion checks the lease token so a worker that lost its lease cannot overwrite a newer result. Publication and enrollment of currently opted-in, email-confirmed members commit in one database transaction. Email failures never regenerate an edition. Delivery eligibility is checked again at claim time; opt-outs, departures, and changed email addresses are skipped. An opt-out after the send has already been claimed may arrive too late to cancel the external provider request.
 

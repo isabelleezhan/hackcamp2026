@@ -1,5 +1,21 @@
 # Supabase setup
 
+## Pending: `0008_publication_schedules.sql`
+
+Apply the complete file once after 0007 before deploying schedule settings. It adds organizer-managed
+weekly weekdays (Monday=0 through Sunday=6) and intervals of 1–365 calendar days. Cutoffs are fixed at
+23:59 Pacific before publication; the default Sunday publication closes Saturday night.
+All group time zones normalize to America/Vancouver, enforced by a database constraint to match
+the single daily n8n workflow. Personal profile time zones remain unchanged.
+Future open periods move to that default cutoff; already-due periods and historical editions stay intact.
+Schedule changes and closures lock the group then its open period. Due periods cannot be reopened by
+changing settings. Unchanged saves preserve the interval anchor, and late workers skip missed dates.
+`set_publication_schedule` is service-role-only and also verifies the supplied actor's organizer role.
+Run `tests/verify_publication_schedules.sql` afterward; it rolls back all test data.
+
+Migration 0008 and its regression checks passed in isolated PostgreSQL with auth/storage stubs and
+all migrations 0001–0008 applied. This does not indicate that 0008 has been applied to the live project.
+
 Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql`,
 `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql`.
 

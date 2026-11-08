@@ -6,6 +6,7 @@ import { card, secondary } from '../../components/ui'
 import { api } from '../../lib/api'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
+import PublicationSchedule from './PublicationSchedule'
 
 const PHOTO_PX = 320
 
@@ -142,15 +143,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-/** Weekday and time the week closes, in the group's time zone (always Sunday 6 p.m. there). */
-function closesLabel(timeZone: string) {
-  const zone =
-    new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'long' })
-      .formatToParts(new Date())
-      .find((p) => p.type === 'timeZoneName')?.value ?? timeZone
-  return `Sundays at 6 p.m. ${zone}`
-}
-
 /** /groups/:groupId/settings: invite people, your email preference, members and your account. */
 export default function GroupSettingsTab() {
   const { group, people, meId, refresh } = useGroup()
@@ -243,12 +235,7 @@ export default function GroupSettingsTab() {
             className="relative h-[30px] w-[50px] shrink-0 rounded-full bg-glass-text/15 transition-colors after:absolute after:left-[3px] after:top-[3px] after:size-6 after:rounded-full after:bg-white after:shadow-[0_2px_4px_rgba(36,56,92,.25)] after:transition-transform peer-checked:bg-accent peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent-text peer-disabled:opacity-60"
           />
         </label>
-        <div className={row}>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">Comes out</span>
-            <span className="block text-[13px] text-glass-muted">{closesLabel(group.timezone)}</span>
-          </span>
-        </div>
+        <PublicationSchedule key={group.id} />
         {error && (
           <p role="alert" className="border-t border-card-line px-4 py-2.5 text-[14px] text-alert">
             {error}

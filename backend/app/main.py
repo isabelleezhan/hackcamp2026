@@ -37,6 +37,7 @@ from app.models import (
     GroupCreate,
     GroupJoin,
     ProfileUpdate,
+    PublicationSchedule,
     PublishRequest,
     ReflectionWrite,
 )
@@ -385,6 +386,22 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             "membership": member,
             "invitation_url": f"{settings.frontend_url}/join?code={rows[0]['join_code']}",
         }
+
+    @app.put("/groups/{group_id}/schedule", tags=["Groups"])
+    async def schedule(group_id: UUID, data: PublicationSchedule, user: User, store: Database):
+        await membership(store, user, group_id, organizer=True)
+        rows = await store.rpc(
+            "set_publication_schedule",
+            {
+                "actor_id": str(user.id),
+                "gid": str(group_id),
+                "schedule_mode": data.mode,
+                "schedule_weekday": data.weekday,
+                "schedule_interval_days": data.interval_days,
+            },
+            admin=True,
+        )
+        return rows[0]
 
     @app.put("/groups/{group_id}/email-preference", tags=["Groups"])
     async def preference(group_id: UUID, data: EmailPreference, user: User, store: Database):

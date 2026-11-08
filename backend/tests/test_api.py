@@ -101,7 +101,74 @@ def test_health_and_openapi(settings):
         assert client.get("/health").json() == {"status": "ok"}
         schema = client.get("/openapi.json").json()
         assert "/groups/{group_id}/publish" in schema["paths"]
+        assert "/groups/{group_id}/schedule" in schema["paths"]
         assert "/groups/{group_id}/audio" in schema["paths"]
+
+
+@pytest.mark.parametrize(
+    "body", [{"mode": "weekly", "weekday": 4}, {"mode": "interval", "interval_days": 2}]
+)
+def test_organizer_sets_schedule(settings, body):
+    def handler(request):
+        assert request.url.path == "/rest/v1/rpc/set_publication_schedule"
+        data = json.loads(request.content)
+        assert data == {
+            "actor_id": OWNER,
+            "gid": GROUP,
+            "schedule_mode": body["mode"],
+            "schedule_weekday": body.get("weekday"),
+            "schedule_interval_days": body.get("interval_days"),
+        }
+        return httpx.Response(200, json=[{"id": GROUP, "publication_mode": body["mode"]}])
+
+    with make_client(settings, handler) as client:
+        response = client.put(f"/groups/{GROUP}/schedule", json=body, headers=AUTH)
+    assert response.status_code == 200
+
+
+def test_group_creation_uses_fixed_publication_timezone(settings):
+    def handler(request):
+        assert request.url.path == "/rest/v1/rpc/create_group_for"
+        assert json.loads(request.content)["group_timezone"] == "America/Vancouver"
+        return httpx.Response(200, json=GROUP)
+
+    with make_client(settings, handler) as client:
+        response = client.post("/groups", json={"name": "Friends"}, headers=AUTH)
+        assert response.status_code == 201
+        assert (
+            client.post(
+                "/groups", json={"name": "Friends", "timezone": "Europe/London"}, headers=AUTH
+            ).status_code
+            == 422
+        )
+
+
+@pytest.mark.parametrize("member,role,expected", [(False, "member", 404), (True, "member", 403)])
+def test_members_cannot_change_schedule(settings, member, role, expected):
+    with make_client(settings, member=member, role=role) as client:
+        response = client.put(
+            f"/groups/{GROUP}/schedule", json={"mode": "weekly", "weekday": 0}, headers=AUTH
+        )
+    assert response.status_code == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"mode": "interval", "interval_days": 1.5},
+        {"mode": "interval", "interval_days": True},
+        {"mode": "interval", "interval_days": 0},
+        {"mode": "interval", "interval_days": 366},
+        {"mode": "weekly", "weekday": 7},
+        {"mode": "weekly"},
+        {"mode": "weekly", "weekday": 0, "interval_days": 2},
+        {"mode": "weekly", "weekday": 0, "time": "12:00"},
+    ],
+)
+def test_schedule_rejects_times_and_invalid_days(settings, body):
+    with make_client(settings) as client:
+        response = client.put(f"/groups/{GROUP}/schedule", json=body, headers=AUTH)
+    assert response.status_code == 422
 
 
 def test_unauthenticated_requests_do_not_reach_supabase(settings):
@@ -293,7 +360,9 @@ def test_published_edition_images_are_scoped_to_snapshot_and_sorted_newest_first
                 ],
             )
         if request.url.path.startswith("/storage/v1/object/sign/reflection-images/"):
-            return httpx.Response(200, json={"signedURL": f"/object/sign/{request.url.path.rsplit('/', 1)[-1]}"})
+            return httpx.Response(
+                200, json={"signedURL": f"/object/sign/{request.url.path.rsplit('/', 1)[-1]}"}
+            )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     with make_client(settings, handler) as client:

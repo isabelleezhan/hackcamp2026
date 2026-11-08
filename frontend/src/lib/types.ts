@@ -50,6 +50,11 @@ export type Group = {
   name: string
   join_code: string
   timezone: string
+  publication_mode: 'weekly' | 'interval'
+  /** Publication weekday: Monday=0, Sunday=6. Notes close the previous day at 23:59. */
+  publication_weekday: number | null
+  publication_interval_days: number | null
+  publication_anchor_date: string
   created_by: string
   created_at: string
   invitation_url: string

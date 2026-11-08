@@ -1,5 +1,11 @@
 # Frontend
 
+Group Settings includes organizer-only publication controls: every 1–365 days or a weekly weekday.
+Members see the schedule and next publication date. Cutoffs are always 23:59 the previous day in the
+fixed America/Vancouver (Pacific) publication time zone, with no time controls. Everyone sees the
+same publication date regardless of their device time zone. n8n must use America/Vancouver too.
+The backend requires migration 0008 for saving schedules.
+
 Production is hosted at https://whydidmyfriendsleaveme.vercel.app with the backend at
 https://whydidmyfriendsleavemee.onrender.com. Set the Vercel project's **Root Directory** to
 `frontend`, framework to Vite, build command to `npm run build`, and output directory to `dist`.

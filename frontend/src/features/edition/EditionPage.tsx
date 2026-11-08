@@ -63,7 +63,7 @@ export function EditionState({
   }
   return (
     <GlassNotice title={`Putting together Issue ${edition.issue_number}…`}>
-      Everyone's notes are being turned into this week's paper. This usually takes under a minute.
+      Everyone's notes are being turned into the next paper. This can take a few minutes.
     </GlassNotice>
   )
 }
@@ -150,7 +150,7 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
       {error ? (
         <GlassNotice title="Issue not available">{error}</GlassNotice>
       ) : !edition ? (
-        <GlassNotice title="Loading this week's paper…" />
+        <GlassNotice title="Loading the paper…" />
       ) : (
         <EditionState edition={edition} group={group} onRetry={retry} retrying={retrying} photos={photos} />
       )}
@@ -166,7 +166,7 @@ export default function EditionRoute() {
       editionId={editionId}
       back={
         <Link to="../.." relative="path" className="text-[15px] font-semibold text-accent-text">
-          ‹ Weekly news
+          ‹ News
         </Link>
       }
     />

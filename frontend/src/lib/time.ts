@@ -30,7 +30,7 @@ export function timeUntil(iso: string, now = Date.now()) {
   return h ? `${h} hr ${m} min` : `${m} min`
 }
 
-/** "Sunday at 6 p.m." in the group's time zone. */
+/** The note cutoff in the group's time zone, e.g. "Saturday at 11:59 p.m.". */
 export function deadlineLabel(iso: string, tz?: string | null) {
   const d = new Date(iso)
   return `${weekday(tz, d)} at ${localTime(tz, d).replace(':00', '')}`

@@ -14,7 +14,7 @@ function Mail({ person, size = 22 }: { person: Person; size?: number }) {
   )
 }
 
-const mailLabel = (p: Person) => (p.notes > 0 ? 'Sent mail this week' : 'No mail yet')
+const mailLabel = (p: Person) => (p.notes > 0 ? 'Sent mail for this issue' : 'No mail yet')
 
 /** People tab (the globe's list): everyone, their city and local time, and whether they've sent mail. */
 export default function PeopleTab() {
@@ -25,7 +25,7 @@ export default function PeopleTab() {
     <div className="grid gap-[14px]">
       <div>
         <p className="text-[14px] text-glass-muted">
-          {sent} of {people.length} sent mail this week. It opens Sunday at 6 p.m.
+          {sent} of {people.length} sent mail for this issue. It opens when the paper is published.
         </p>
         <div className="mt-2.5 flex gap-1" aria-hidden="true">
           {people.map((p) => (
@@ -109,10 +109,10 @@ export function PersonView() {
           <p className="font-bold">{sent ? 'Mail is in' : 'No mail yet'}</p>
           <p className="text-[14px] text-glass-muted">
             {sent
-              ? `${isMe ? 'Your' : `${person.name}'s`} mail stays sealed until the paper comes out Sunday at 6 p.m.`
+              ? `${isMe ? 'Your' : `${person.name}'s`} mail stays sealed until the next paper is published.`
               : isMe
-                ? "You haven't sent anything this week."
-                : `${person.name} hasn't sent anything this week.`}
+                ? "You haven't sent anything for this issue."
+                : `${person.name} hasn't sent anything for this issue.`}
           </p>
         </div>
       </div>

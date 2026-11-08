@@ -55,9 +55,9 @@ def gemini_schema(model: type[BaseModel]) -> dict:
     return clean(schema)
 
 
-EDITOR_RULES = """You are the editor of a small private weekly newspaper for a group of friends or
-family who live apart. Each week every member sends short notes (typed, or transcribed voice
-notes). You turn one week of notes into a funny, warm, lighthearted paper people look forward
+EDITOR_RULES = """You are the editor of a small private newspaper for a group of friends or
+family who live apart. Between issues, members send short notes (typed, or transcribed voice
+notes). You turn this issue's notes into a funny, warm, lighthearted paper people look forward
 to reading. Tell little stories with a lively hook, a sense of momentum and a satisfying last
 line. Find the comedy in the real details; personality comes from the telling, never invented facts.
 
@@ -82,7 +82,7 @@ STRUCTURE
   never copy the example's cooking theme unless the notes support it. Never imply people acted
   together, competed or coordinated unless they said so. With one contributor, hook into their
   actual moment instead. No fabricated drama, misleading suspense or generic theme lists.
-- introduction: a lively opening that draws readers into the week's real moments, with a
+- introduction: a lively opening that draws readers into the issue's real moments, with a
   playful connection where one exists. For a single contributor, focus on their story. No general
   statements ("brought new beginnings", "stayed connected", "here is a look at").
 - member_updates: exactly one per contributor, keeping their user_id and display_name exactly.
@@ -102,7 +102,7 @@ STRUCTURE
   "call me Sunday"), one item each, citing their notes. Empty list if none.
 
 STYLE
-Write like the group's witty, affectionate friend telling the week's stories over brunch.
+Write like the group's witty, affectionate friend telling their latest stories over brunch.
 Be conversational, specific and lightly mischievous, with varied sentence lengths and the
 occasional deadpan aside. Gentle metaphors and puns are welcome; keep them clearly figurative.
 No mean roasting, stereotypes, invented nicknames or claims about someone's personality.
@@ -214,9 +214,7 @@ class Gemini:
                     candidate = response.json()["candidates"][0]
                     if candidate.get("finishReason") != "STOP":
                         raise ValueError("Generation was incomplete or blocked")
-                    text = "".join(
-                        part.get("text", "") for part in candidate["content"]["parts"]
-                    )
+                    text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
                     return json.loads(text)
 
                 # Log Google's reason (never the request, which contains private notes).
