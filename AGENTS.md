@@ -9,8 +9,8 @@ judged in a 4-minute demo plus 4 minutes of Q&A. Organizers may ask to see stead
 
 ## What we're building
 
-Friends and family who live apart send short voice or text notes about their week. Every Sunday
-at 6 p.m., Gemini compiles everyone's notes into one short, attributed newspaper for the group.
+Friends and family who live apart send short voice or text notes. On the group's chosen
+publication dates, Gemini compiles everyone's notes into one short, attributed newspaper.
 The home screen is a **3D globe** with each person's avatar at their city; tap someone to read
 their story in this week's paper. Design reference: the prototype at
 https://claude.ai/artifact/FaK1NSxn8AZmb5bbzddcWB (realistic Earth lit by the real sun,
@@ -37,13 +37,19 @@ round avatar pins, frosted-glass sheet, record button).
 
 ### 2. Groups
 - Anyone can **create a group** and becomes its **organizer**. A group has a join code, an invite
-  link (`/join/<code>`) and a time zone (default `America/Vancouver`).
+  link (`/join/<code>`) and a fixed publication time zone: **America/Vancouver (Pacific Time)**.
+  This is shared by all groups and the daily n8n workflow; member/profile time zones stay personal.
 - Others **join with the code or the link**. A person can be in several groups.
 - Each member chooses whether to **get the paper by email** (`email_opt_in`, default off).
 
 ### 3. During the week
-- Creating a group opens **week 1**. A week closes at the group's release time (**default Sunday 18:00**, organizers can change it) in the group's time zone;
-  the next week opens immediately. See `backend/app/periods.py`.
+- Creating a group opens **issue period 1**. Organizers choose **every N calendar days (1–365)**
+  or **weekly on a weekday** in Settings. Default publication day is Sunday. Days only; no time picker.
+  Notes close at **23:59 Pacific Time on the day before publication**. The next period
+  opens when the worker closes the due one. See `backend/app/periods.py` and migration 0008.
+  Interval schedules anchor to the local day they are changed, first publishing N days later.
+  Saving unchanged settings does not reset the anchor. Changes update a future open cutoff;
+  an already-due period keeps its cutoff and the following period uses the new schedule.
 - **The home screen is the globe:** pins at each member's last known city, with their local
   time, when the location was last updated, and how many notes they've sent this week. There's
   also a People list (accessible, keyboard-friendly) and a countdown to the close.
@@ -60,12 +66,15 @@ round avatar pins, frosted-glass sheet, record button).
 - Notes can be **edited or deleted until the week closes**. Your own page shows this week's notes as a timeline.
 
 ### 4. Publishing (backend owns all logic; n8n and the button just call it)
-- Triggers: **n8n weekly schedule** → `POST /internal/publish-due`, or the organizer's
-  **"End week & publish"** button → `POST /groups/{id}/periods/{period_id}/publish`. Both run the same code.
+- Triggers: **n8n daily at 00:01** → `POST /internal/tick`, or the organizer's
+  publish button → `POST /groups/{id}/publish`. Both run the same closure/generation/delivery logic.
+  Set the n8n workflow time zone to **America/Vancouver**, matching all publication calendars.
+  Publication completes after generation; the daily trigger starts processing at 00:01 Pacific Time.
 - Steps:
   1. Close the period (conditional update, so it's idempotent).
   2. Snapshot all its notes into `editions.source_snapshot`.
-  3. Open the next period. After an early close it keeps the same deadline; an overdue period rolls to next Sunday.
+  3. Open the next period. After an early close it keeps the same deadline; an overdue period
+     advances to the next date on the saved schedule, retaining the interval anchor after missed runs.
 - Notes saved after the close belong to the next week. **No notes means the week closes with no
   edition and no email.**
 - **Gemini compiles the paper:** one story per person summarizing *all* their notes, plus a lead
@@ -154,11 +163,11 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 | `GET /groups`, `POST /groups` | user | list my groups / create (caller becomes organizer, period 1 opens) |
 | `POST /groups/join` `{code}` | user | join by code |
 | `GET /groups/{id}` | member | group, members (name, city, lat/lng, timezone, notes this week), current period |
+| `PUT /groups/{id}/schedule` | organizer | `{mode:"weekly", weekday:0..6}` (Monday=0), or `{mode:"interval", interval_days:1..365}`; atomically update schedule and future cutoff |
 | `PATCH /groups/{id}/membership` `{email_opt_in}` | member | email preference |
 | `PATCH /groups/{id}` `{name}` | organizer | rename the newsletter |
 | `POST /groups/{id}/leave` | member | leave; your open-week notes are removed; last organizer can't leave while others remain |
 | `DELETE /groups/{id}` | organizer | delete the newsletter and everything in it, for everyone |
-| `PATCH /groups/{id}/schedule` `{weekday, hour, timezone}` | organizer | when the paper comes out (Mon=0…Sun=6, hour 0–23); the open week moves to the next release time |
 | `GET /geocode/search?q=` | user | city suggestions for the location picker: `[{city, label, lat, lng}]`, lat/lng at 1 decimal |
 | `POST /groups/{id}/transcribe` (multipart audio) | member | → `{transcript, audio_path, audio_seconds}` |
 | `GET /groups/{id}/notes/mine` | member | my notes in the current period |
@@ -175,6 +184,13 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 - Per person per week: ≤ 30 notes and ≤ 1,800 s of audio.
 
 ## Status (update as you go)
+- **Publication schedules implemented; migration `0008_publication_schedules.sql` is pending.**
+  Organizer-only day controls, database-owned 23:59 cutoffs, anchored intervals, weekly weekdays,
+  and atomic schedule changes/closure. Existing future periods move to the new default Sunday
+  publication cutoff; overdue periods and historical editions are preserved. Apply 0008 after 0007
+  before deploying the new schedule API. Limits of 30 notes/1,800 audio seconds apply per issue period.
+  Migration 0008 also normalizes all group time zones to America/Vancouver and enforces that fixed
+  publication zone in the database and group-create API. Profile time zones remain unchanged.
 Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 - **Backend implemented (starting at commit `2a1d590`, Alson).** See [backend/README.md](backend/README.md). For
@@ -228,10 +244,10 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   only while a group is being deleted. **Applied to the live project on November 8, 2026** (verified:
   the functions exist and refuse unknown groups).
 
-- **Release schedule:** `0008_release_schedule.sql` adds `groups.publish_weekday` and
-  `groups.publish_hour` (defaults Sunday 18:00). The backend applies them to the open week on change
-  and to each new week after a close (`close_issue()` is unchanged). **Applied to the live
-  project on November 8, 2026** (verified: columns exist, existing groups default to Sunday 18:00).
+- **Dropped parallel schedule:** a second schedule design (`publish_weekday`/`publish_hour`) was
+  applied to the live project on November 8, 2026 and then removed in favour of
+  `0008_publication_schedules.sql`. `0009_drop_release_schedule_columns.sql` drops its unused columns
+  (not yet applied; harmless until it is).
 - **Typed locations:** the city field is a picker backed by `GET /geocode/search` (Nominatim, same
   1 request/second budget and cache). Picking a city saves its rounded coordinates, so manual
   locations appear on the globe.

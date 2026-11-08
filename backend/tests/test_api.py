@@ -101,7 +101,74 @@ def test_health_and_openapi(settings):
         assert client.get("/health").json() == {"status": "ok"}
         schema = client.get("/openapi.json").json()
         assert "/groups/{group_id}/publish" in schema["paths"]
+        assert "/groups/{group_id}/schedule" in schema["paths"]
         assert "/groups/{group_id}/audio" in schema["paths"]
+
+
+@pytest.mark.parametrize(
+    "body", [{"mode": "weekly", "weekday": 4}, {"mode": "interval", "interval_days": 2}]
+)
+def test_organizer_sets_schedule(settings, body):
+    def handler(request):
+        assert request.url.path == "/rest/v1/rpc/set_publication_schedule"
+        data = json.loads(request.content)
+        assert data == {
+            "actor_id": OWNER,
+            "gid": GROUP,
+            "schedule_mode": body["mode"],
+            "schedule_weekday": body.get("weekday"),
+            "schedule_interval_days": body.get("interval_days"),
+        }
+        return httpx.Response(200, json=[{"id": GROUP, "publication_mode": body["mode"]}])
+
+    with make_client(settings, handler) as client:
+        response = client.put(f"/groups/{GROUP}/schedule", json=body, headers=AUTH)
+    assert response.status_code == 200
+
+
+def test_group_creation_uses_fixed_publication_timezone(settings):
+    def handler(request):
+        assert request.url.path == "/rest/v1/rpc/create_group_for"
+        assert json.loads(request.content)["group_timezone"] == "America/Vancouver"
+        return httpx.Response(200, json=GROUP)
+
+    with make_client(settings, handler) as client:
+        response = client.post("/groups", json={"name": "Friends"}, headers=AUTH)
+        assert response.status_code == 201
+        assert (
+            client.post(
+                "/groups", json={"name": "Friends", "timezone": "Europe/London"}, headers=AUTH
+            ).status_code
+            == 422
+        )
+
+
+@pytest.mark.parametrize("member,role,expected", [(False, "member", 404), (True, "member", 403)])
+def test_members_cannot_change_schedule(settings, member, role, expected):
+    with make_client(settings, member=member, role=role) as client:
+        response = client.put(
+            f"/groups/{GROUP}/schedule", json={"mode": "weekly", "weekday": 0}, headers=AUTH
+        )
+    assert response.status_code == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"mode": "interval", "interval_days": 1.5},
+        {"mode": "interval", "interval_days": True},
+        {"mode": "interval", "interval_days": 0},
+        {"mode": "interval", "interval_days": 366},
+        {"mode": "weekly", "weekday": 7},
+        {"mode": "weekly"},
+        {"mode": "weekly", "weekday": 0, "interval_days": 2},
+        {"mode": "weekly", "weekday": 0, "time": "12:00"},
+    ],
+)
+def test_schedule_rejects_times_and_invalid_days(settings, body):
+    with make_client(settings) as client:
+        response = client.put(f"/groups/{GROUP}/schedule", json=body, headers=AUTH)
+    assert response.status_code == 422
 
 
 def test_unauthenticated_requests_do_not_reach_supabase(settings):
@@ -125,10 +192,6 @@ def test_publish_uses_service_role_after_membership_check_and_expected_period(se
     def handler(request):
         import json
 
-        if request.url.path == "/rest/v1/issue_periods":
-            # The deadline of the week being closed, for applying the release schedule.
-            assert request.url.params["id"] == f"eq.{PERIOD}"
-            return httpx.Response(200, json=[])
         assert request.url.path == "/rest/v1/rpc/close_issue"
         assert request.headers["authorization"] == "Bearer test-service"
         assert json.loads(request.content) == {"gid": GROUP, "expected_period_id": PERIOD}
@@ -902,70 +965,3 @@ def test_non_members_cannot_rename_leave_or_delete(settings):
         assert client.post(f"/groups/{GROUP}/leave", headers=AUTH).status_code == 404
         assert client.delete(f"/groups/{GROUP}", headers=AUTH).status_code == 404
 
-
-def test_schedule_change_is_organizer_only(settings):
-    with make_client(settings, role="member") as client:
-        result = client.patch(
-            f"/groups/{GROUP}/schedule",
-            headers=AUTH,
-            json={"weekday": 4, "hour": 20, "timezone": "Europe/London"},
-        )
-    assert result.status_code == 403
-
-
-def test_schedule_rejects_bad_values(settings):
-    with make_client(settings) as client:
-        for body in (
-            {"weekday": 7, "hour": 20, "timezone": "Europe/London"},
-            {"weekday": 4, "hour": 24, "timezone": "Europe/London"},
-            {"weekday": 4, "hour": 20, "timezone": "Mars/Base"},
-        ):
-            assert (
-                client.patch(f"/groups/{GROUP}/schedule", headers=AUTH, json=body).status_code
-                == 422
-            )
-
-
-def test_schedule_change_moves_the_open_week(settings):
-    from datetime import UTC, datetime
-    from zoneinfo import ZoneInfo
-
-    seen = {}
-
-    def handler(request):
-        path = request.url.path
-        if path == "/rest/v1/groups" and request.method == "PATCH":
-            seen["group"] = json.loads(request.content)
-            return httpx.Response(
-                200,
-                json=[
-                    {
-                        "id": GROUP,
-                        "join_code": "ABCDEFGH",
-                        "timezone": "Europe/London",
-                        **seen["group"],
-                    }
-                ],
-            )
-        if path == "/rest/v1/issue_periods" and request.method == "GET":
-            return httpx.Response(
-                200, json=[{"id": PERIOD, "deadline_at": "2026-11-08T18:00:00-08:00"}]
-            )
-        if path == "/rest/v1/issue_periods" and request.method == "PATCH":
-            seen["period"] = json.loads(request.content)
-            return httpx.Response(200, json=[{"id": PERIOD, **seen["period"]}])
-        raise AssertionError(f"Unexpected {request.method} {path}")
-
-    with make_client(settings, handler) as client:
-        result = client.patch(
-            f"/groups/{GROUP}/schedule",
-            headers=AUTH,
-            json={"weekday": 4, "hour": 20, "timezone": "Europe/London"},
-        )
-    assert result.status_code == 200, result.text
-    assert seen["group"] == {"publish_weekday": 4, "publish_hour": 20, "timezone": "Europe/London"}
-    deadline = datetime.fromisoformat(seen["period"]["deadline_at"])
-    local = deadline.astimezone(ZoneInfo("Europe/London"))
-    assert (local.weekday(), local.hour, local.minute) == (4, 20, 0)
-    assert deadline > datetime.now(UTC)
-    assert result.json()["next_deadline_at"] == seen["period"]["deadline_at"]

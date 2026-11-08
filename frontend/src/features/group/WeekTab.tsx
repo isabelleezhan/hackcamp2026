@@ -45,10 +45,10 @@ export default function WeekTab({ mode }: { mode?: 'voice' | 'write' }) {
   if (!period)
     return (
       <section className={`${card} grid gap-3 p-4`}>
-        <h2 className="text-xl font-bold">This week</h2>
-        <p>The current week is not available. Refresh to check for the next week.</p>
+        <h2 className="text-xl font-bold">Current issue</h2>
+        <p>The current issue period is not available. Refresh to check for the next period.</p>
         <button type="button" className={secondary} onClick={() => void refresh()}>
-          Refresh week
+          Refresh period
         </button>
       </section>
     )
@@ -110,7 +110,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
     if (actionInFlight.current) throw new Error('Another change is still being saved.')
     if (Date.now() >= new Date(period.deadline_at).getTime() || period.closed_at) {
       setNow(Date.now())
-      throw new Error('This week has closed. Refresh the week before adding another note.')
+      throw new Error('This issue period has closed. Refresh before adding another note.')
     }
     actionInFlight.current = true
     setBusy(true)
@@ -181,7 +181,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
         [
           locationFallback
             ? 'Note saved using your last known city. Your current location was unavailable.'
-            : 'Note saved for this week.',
+            : 'Note saved for this issue.',
           sent.length ? `Also sent to ${listNames(sent)}.` : '',
           imageUploadError ? 'The note was saved, but its images could not be uploaded.' : '',
         ]
@@ -248,19 +248,19 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
   return (
     <div className="grid gap-4 pb-4">
       <header>
-        <h2 className="text-[24px] font-extrabold">This week</h2>
+        <h2 className="text-[24px] font-extrabold">Current issue</h2>
         <p className={subtitle}>
           {closed
-            ? 'This week is closed. Refresh to load the next week.'
+            ? 'This issue period is closed. Refresh to load the next period.'
             : `Closes ${deadlineLabel(period.deadline_at, group.timezone)} (${timeUntil(period.deadline_at, now)} left).`}
         </p>
         <p className={`${subtitle} mt-1`}>
-          {notes.length}/30 notes | {clock(totalAudio)}/30:00 audio this week
+          {notes.length}/30 notes | {clock(totalAudio)}/30:00 audio for this issue
         </p>
       </header>
       {closed && (
         <button type="button" className={secondary} onClick={() => void refresh()}>
-          Refresh week
+          Refresh period
         </button>
       )}
       {notice && (
@@ -273,7 +273,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
           {actionError}
         </p>
       )}
-      <section className={`${card} grid gap-3 p-4`} aria-label="Your weekly notes">
+      <section className={`${card} grid gap-3 p-4`} aria-label="Your notes for this issue">
         <h3 className="text-[18px] font-bold">Your notes</h3>
         <p className={subtitle}>
           Only you can see these until the paper comes out. Your notes go into this group's paper, which AI
@@ -289,7 +289,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
             </button>
           </div>
         ) : notes.length === 0 ? (
-          <p className={subtitle}>No notes yet. Start with one small moment from your week.</p>
+          <p className={subtitle}>No notes yet. Start with one small moment from your day.</p>
         ) : (
           <ol className="grid gap-3">
             {notes.map((note, index) => (
@@ -383,13 +383,13 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
         </div>
       )}
       {!closed && !canAdd && !editing && (
-        <p role="status">You've reached 30 notes this week. You can still edit or delete your saved notes.</p>
+        <p role="status">You've reached 30 notes for this issue. You can still edit or delete your saved notes.</p>
       )}
       {isOrganizer && (
-        <section className={`${card} grid gap-3 p-4`} aria-label="Publish this week">
-          <h3 className="text-[18px] font-bold">Bring the week together</h3>
+        <section className={`${card} grid gap-3 p-4`} aria-label="Publish this issue">
+          <h3 className="text-[18px] font-bold">Bring everyone's notes together</h3>
           <p className={subtitle}>
-            Close this week and turn everyone's submitted notes into a newspaper. A new week opens
+            Close this period and turn everyone's submitted notes into a newspaper. A new period opens
             immediately.
           </p>
           {(dirty || composing) && (
@@ -402,12 +402,12 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
               disabled={disabled || dirty || loading || Boolean(loadError)}
               onClick={() => setConfirmPublish(true)}
             >
-              End week &amp; publish
+              Close period &amp; publish
             </button>
           ) : (
             <div className="grid gap-3" role="group" aria-label="Confirm publishing">
               <p>
-                This closes the week for everyone. Saved notes will be locked. If nobody submitted a note, no
+                This closes the period for everyone. Saved notes will be locked. If nobody submitted a note, no
                 newspaper or email will be created.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -425,7 +425,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
                   disabled={disabled}
                   onClick={() => setConfirmPublish(false)}
                 >
-                  Keep week open
+                  Keep period open
                 </button>
               </div>
             </div>

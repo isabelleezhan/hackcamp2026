@@ -11,7 +11,7 @@ export default function PaperTab() {
   const emptyWeek = (location.state as { emptyWeek?: boolean } | null)?.emptyWeek
   const notice = emptyWeek && (
     <p role="status" className={`${card} p-4 text-[15px]`}>
-      The week closed without submitted notes. No newspaper or email was created. A new week is open.
+      The issue period closed without submitted notes. No newspaper or email was created. A new period is open.
     </p>
   )
   if (!latest) {
@@ -21,7 +21,7 @@ export default function PaperTab() {
         <h2 className="text-[22px] font-extrabold tracking-[-0.01em]">Latest issue</h2>
         <p className={`${card} p-4 text-[15px] text-glass-text/80`}>
           No paper yet. The first issue comes out
-          {period ? ` ${deadlineLabel(period.deadline_at, group.timezone)}` : ' at the end of the week'}, once
+          {period ? ` after notes close ${deadlineLabel(period.deadline_at, group.timezone)}` : ' after the next cutoff'}, once
           someone has written a note.{' '}
           <Link to={{ search: '?compose=write' }} className="font-semibold text-accent-text">
             Write one now

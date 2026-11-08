@@ -5,7 +5,6 @@ import Avatar from '../../components/Avatar'
 import GlassPage from '../../components/GlassPage'
 import { card, input, label, link, primary, secondary, subtitle, title } from '../../components/ui'
 import { api, ApiError } from '../../lib/api'
-import { browserTimeZone } from '../../lib/time'
 import type { GroupSummary } from '../../lib/types'
 import { useProfile } from '../account/context'
 
@@ -34,7 +33,7 @@ export default function GroupsHome() {
     try {
       const { id } = await api<{ id: string }>('/groups', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim(), timezone: browserTimeZone() }),
+        body: JSON.stringify({ name: name.trim() }),
       })
       navigate(`/groups/${id}/settings?new=1`)
     } catch (err) {

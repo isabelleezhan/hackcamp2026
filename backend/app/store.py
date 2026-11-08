@@ -59,11 +59,11 @@ class Store:
                 raise HTTPException(409, "That record already exists")
             if message == "Weekly note limit reached":
                 raise HTTPException(
-                    429, "You've added 30 notes this week. That's the weekly limit."
+                    429, "You've added 30 notes for this issue. That's the per-issue limit."
                 )
             if message == "Weekly audio limit reached":
                 raise HTTPException(
-                    429, "You've recorded 30 minutes this week. That's the weekly limit."
+                    429, "You've recorded 30 minutes for this issue. That's the per-issue limit."
                 )
             if message == "Period is closed":
                 raise HTTPException(

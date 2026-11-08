@@ -4,63 +4,10 @@ from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
 
 from app.config import Settings
-from app.periods import deadline_after_close, next_deadline, schedule_of
 from app.providers import Gemini, Resend, email_payload
 from app.store import Store
 
 logger = logging.getLogger(__name__)
-
-
-def parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-async def apply_schedule_after_close(store: Store, group_id: str, closed_deadline: str) -> None:
-    """close_issue() opens the next week at Sunday 18:00; move it to the group's own release time.
-
-    Best effort: publishing already succeeded, so a failure here only leaves the default time.
-    """
-    try:
-        groups = await store.rows("groups", admin=True, id=f"eq.{group_id}")
-        if not groups:
-            return
-        weekday, hour = schedule_of(groups[0])
-        tz = groups[0]["timezone"]
-        target = deadline_after_close(
-            parse_time(closed_deadline), datetime.now(UTC), tz, weekday, hour
-        )
-        open_periods = await store.rows(
-            "issue_periods", admin=True, group_id=f"eq.{group_id}", closed_at="is.null"
-        )
-        for period in open_periods:
-            if parse_time(period["deadline_at"]) != target:
-                await store.write(
-                    "PATCH",
-                    "issue_periods",
-                    {"deadline_at": target.isoformat()},
-                    admin=True,
-                    id=f"eq.{period['id']}",
-                )
-    except Exception:
-        logger.warning("Could not apply the release schedule for group %s", group_id)
-
-
-async def reschedule_open_week(store: Store, group: dict) -> str | None:
-    """After a schedule change, the open week closes at the next new release time."""
-    weekday, hour = schedule_of(group)
-    target = next_deadline(datetime.now(UTC), group["timezone"], weekday, hour)
-    open_periods = await store.rows(
-        "issue_periods", admin=True, group_id=f"eq.{group['id']}", closed_at="is.null"
-    )
-    for period in open_periods:
-        await store.write(
-            "PATCH",
-            "issue_periods",
-            {"deadline_at": target.isoformat()},
-            admin=True,
-            id=f"eq.{period['id']}",
-        )
-    return target.isoformat() if open_periods else None
 
 
 def now_iso() -> str:
@@ -221,9 +168,6 @@ class Jobs:
                     admin=True,
                 )
                 report["closed"] += 1
-                await apply_schedule_after_close(
-                    self.store, period["group_id"], period["deadline_at"]
-                )
             except HTTPException:
                 report["errors"] += 1
         editions = await self.store.rows(
