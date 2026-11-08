@@ -21,10 +21,10 @@ type Pin = { id: string; lat: number; lng: number; person: Person }
 type Feature = { id?: string; properties?: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }
 
 // Stylized "clay" globe, matching the Long-Distance Weekly prototype.
-const LAND = ['#cfe6c1', '#d9e9b9', '#e8e0b8', '#c5e1d0', '#e2eac3', '#d4e4bb']
+const LAND = ['#9ee07c', '#bfe866', '#ffd96a', '#7fdcae', '#d4ee5e', '#b2e38a']
 const landColor = (f: object) => {
   const feat = f as Feature
-  if (feat.properties?.name === 'Antarctica') return '#f2f6fa'
+  if (feat.properties?.name === 'Antarctica') return '#ffffff'
   let h = 0
   for (const ch of String(feat.id ?? feat.properties?.name ?? '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return LAND[h % LAND.length]
@@ -54,7 +54,7 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
   const [size, setSize] = useState({ w: 0, h: 0 })
   const land = useLand()
   const material = useMemo(
-    () => new MeshPhongMaterial({ color: '#a9cdeb', emissive: '#6d95c4', emissiveIntensity: 0.18, shininess: 6 }),
+    () => new MeshPhongMaterial({ color: '#6ec3ff', emissive: '#3fa2ff', emissiveIntensity: 0.28, shininess: 6 }),
     [],
   )
   const onSelectRef = useRef(onSelect)
@@ -141,7 +141,7 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
     const g = ref.current
     if (!g) return
     const [amb, sun] = g.lights() as unknown as [{ intensity: number }, { intensity: number; position: { set: (x: number, y: number, z: number) => void } }]
-    amb.intensity = 2.4
+    amb.intensity = 2.7
     sun.intensity = 1.5
     sun.position.set(-1.2, 1.4, 1.6)
     const controls = g.controls() as unknown as { autoRotate: boolean; autoRotateSpeed: number; minDistance: number; addEventListener: (e: string, f: () => void) => void }
@@ -172,11 +172,11 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
           backgroundColor="rgba(0,0,0,0)"
           globeMaterial={material}
           showAtmosphere
-          atmosphereColor="#ffffff"
-          atmosphereAltitude={0.16}
+          atmosphereColor="#bfe3ff"
+          atmosphereAltitude={0.18}
           polygonsData={land}
           polygonCapColor={landColor}
-          polygonSideColor={() => 'rgba(118,150,112,0.55)'}
+          polygonSideColor={() => 'rgba(76,150,84,0.6)'}
           polygonStrokeColor={() => 'rgba(255,255,255,0.95)'}
           polygonAltitude={0.011}
           polygonsTransitionDuration={0}

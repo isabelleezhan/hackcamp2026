@@ -27,6 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Keeps people signed in across reloads, including Safari (needs refresh token rotation
       // enabled on the Auth0 application and "Allow Offline Access" on the API).
       useRefreshTokens
+      // If "Allow Offline Access" isn't enabled on the Auth0 API, fall back to silent renewal
+      // instead of failing to get a token.
+      useRefreshTokensFallback
       cacheLocation="localstorage"
       onRedirectCallback={(state?: AppState) => navigate(state?.returnTo ?? '/', { replace: true })}
     >

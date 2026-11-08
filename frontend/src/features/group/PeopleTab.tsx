@@ -42,9 +42,15 @@ export default function PeopleTab() {
                   {p.tz && `, ${localTime(p.tz)}`}
                 </span>
               </span>
-              <span className={`whitespace-nowrap text-[13px] font-semibold ${p.notes ? 'text-ok' : 'text-glass-muted'}`}>
-                {p.notes ? `${p.notes} ${p.notes === 1 ? 'note' : 'notes'}` : 'Not yet'}
-                <span aria-hidden="true" className="ml-1.5 text-glass-text/30">
+              <span
+                className="inline-flex items-center gap-1.5"
+                title={p.notes ? `${p.notes} ${p.notes === 1 ? 'note' : 'notes'} this week` : 'Not written yet'}
+              >
+                <span aria-hidden="true" className={`text-[22px] leading-none ${p.notes ? '' : 'opacity-45 grayscale'}`}>
+                  {p.notes ? '💌' : '✉️'}
+                </span>
+                <span className="sr-only">{p.notes ? `${p.notes} ${p.notes === 1 ? 'note' : 'notes'} this week` : 'Not written yet'}</span>
+                <span aria-hidden="true" className="text-glass-text/30">
                   ›
                 </span>
               </span>

@@ -25,6 +25,19 @@ Group pages need the backend running at `VITE_API_URL`; `/preview/edition` and `
 remain available without sign-in. If the backend rejects a profile request with 401,
 the app prompts the user to sign in again instead of showing a server-connectivity error.
 
+**No backend yet? Use the mock API** (in a second terminal):
+
+```bash
+npm run mock-api             # http://localhost:8000, the default VITE_API_URL
+```
+
+It answers the same routes as the real backend, in memory: a seeded group ("The Long-Distance
+Weekly", you as organizer plus four friends, a published Issue 12), adding and editing notes, a
+fake voice transcript, "End week & publish" (builds a simple mock issue after a few seconds) and the
+email preview. Sign in with Auth0 as usual; the mock accepts any token and treats you as the
+seeded "You". Data resets when it restarts. Stop it before running the real backend, which also
+uses port 8000. Source: `mock/server.mjs`.
+
 ## Route map
 
 | Route | Page | File | Status |
