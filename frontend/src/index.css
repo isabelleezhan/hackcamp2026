@@ -120,6 +120,34 @@ body {
 .globe-pin.sel .name { background: var(--color-glass-text); color: #fff; }
 @media (prefers-reduced-motion: reduce) { .globe-pin, .globe-pin .inner, .globe-pin .av { transition: none; } }
 
+/* A saved note: the letter drops in, the flap folds shut, a heart seal stamps it, and it flies
+   off toward the globe. SealAnimation.tsx; never runs with reduced motion. */
+.seal-fly { filter: drop-shadow(0 18px 30px rgb(36 56 92 / .28)); animation: seal-fly 1.9s cubic-bezier(.3,.7,.3,1) both; }
+.seal-letter { animation: seal-letter 1.9s cubic-bezier(.4,0,.2,1) both; }
+.seal-flap-open { animation: seal-flap-open 1.9s linear both; }
+.seal-flap { transform-box: fill-box; transform-origin: center top; animation: seal-flap 1.9s cubic-bezier(.5,0,.3,1.3) both; }
+.seal-wax { transform-box: fill-box; transform-origin: center; animation: seal-wax 1.9s cubic-bezier(.2,.9,.3,1.5) both; }
+@keyframes seal-fly {
+  0% { opacity: 0; transform: translateY(24px) scale(.86); }
+  10%, 66% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translate(0, -42vh) rotate(-8deg) scale(.22); }
+}
+@keyframes seal-letter { 0%, 8% { transform: translateY(-26px); } 34%, 100% { transform: translateY(31px); } }
+@keyframes seal-flap-open { 0%, 33% { opacity: 1; } 34%, 100% { opacity: 0; } }
+@keyframes seal-flap { 0%, 33% { opacity: 0; transform: scaleY(0); } 34% { opacity: 1; transform: scaleY(0); } 48%, 100% { opacity: 1; transform: scaleY(1); } }
+@keyframes seal-wax { 0%, 48% { opacity: 0; transform: scale(0); } 58% { opacity: 1; transform: scale(1.25); } 64%, 100% { opacity: 1; transform: scale(1); } }
+
+@keyframes landing-toast { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+.landing-toast { animation: landing-toast .4s cubic-bezier(.2,.9,.3,1.2) both; }
+@media (prefers-reduced-motion: reduce) { .landing-toast { animation: none; } }
+
+/* Your pin when mail goes out, and every pin when an issue lands. */
+@keyframes pin-ping { 0% { box-shadow: 0 0 0 0 rgb(74 155 232 / .6), 0 8px 18px rgb(36 56 92 / .28); } 100% { box-shadow: 0 0 0 16px rgb(74 155 232 / 0), 0 8px 18px rgb(36 56 92 / .28); } }
+@keyframes pin-pop { 0% { transform: scale(1); } 40% { transform: scale(1.28); } 100% { transform: scale(1); } }
+.globe-pin .av.ping { animation: pin-ping .9s ease-out 2, pin-pop .55s cubic-bezier(.2,.9,.3,1.4); }
+.globe-pin .av.landed::after { content: '💌'; position: absolute; right: -9px; top: -9px; font-size: 15px; line-height: 1; filter: drop-shadow(0 1px 2px rgb(36 56 92 / .3)); animation: pin-pop .5s cubic-bezier(.2,.9,.3,1.5) both; }
+@media (prefers-reduced-motion: reduce) { .globe-pin .av.ping, .globe-pin .av.landed::after { animation: none; } }
+
 /* Compose panel: rises in from the button; the voice box glows when it's the target. */
 @keyframes compose-in {
   from { opacity: 0; transform: translateY(14px) scale(.98); }

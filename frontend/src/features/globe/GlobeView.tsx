@@ -7,6 +7,7 @@ import countries from 'world-atlas/countries-110m.json'
 import { gradientFor, initialOf } from '../../lib/avatar'
 import { localTime } from '../../lib/time'
 import type { Person } from '../group/context'
+import { SEALED } from '../../lib/mailEvents'
 
 type Props = {
   people: Person[]
@@ -15,6 +16,24 @@ type Props = {
   onSelect: (id: string | null) => void
   /** Where the sheet covers the globe, so the focused person stays visible. */
   sheet: 'left' | 'bottom' | 'none'
+  /** A newly published issue to celebrate once: mail flies in from everyone to you. */
+  landing?: { id: string; issue: number } | null
+  onLanded?: () => void
+}
+
+type Arc = { startLat: number; startLng: number; endLat: number; endLng: number; colors: [string, string]; landing?: boolean }
+
+const AIRMAIL: [string, string][] = [
+  ['#4a9be8', '#f07a73'],
+  ['#f07a73', '#4a9be8'],
+]
+
+/** Restart a one-off CSS animation class on an element. */
+function replay(el: HTMLElement, cls: string, ms: number) {
+  el.classList.remove(cls)
+  void el.offsetWidth
+  el.classList.add(cls)
+  setTimeout(() => el.classList.remove(cls), ms)
 }
 
 type Pin = { id: string; lat: number; lng: number; members: Person[] }
@@ -83,11 +102,14 @@ function useLand() {
   }, [])
 }
 
-export default function GlobeView({ people, meId, selectedId, onSelect, sheet }: Props) {
+export default function GlobeView({ people, meId, selectedId, onSelect, sheet, landing = null, onLanded }: Props) {
   const ref = useRef<GlobeMethods | undefined>(undefined)
   const box = useRef<HTMLDivElement>(null)
   const pinEls = useRef(new Map<string, { root: HTMLElement; av: HTMLElement; name: HTMLElement }>())
   const [size, setSize] = useState({ w: 0, h: 0 })
+  const [globeReady, setGlobeReady] = useState(false)
+  const [landingArcs, setLandingArcs] = useState<Arc[]>([])
+  const [toast, setToast] = useState<string | null>(null)
   const land = useLand()
   const material = useMemo(
     () => new MeshPhongMaterial({ color: '#6ec3ff', emissive: '#3fa2ff', emissiveIntensity: 0.28, shininess: 6 }),
@@ -183,13 +205,87 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
 
   const me = people.find((p) => p.id === meId)
   const target = people.find((p) => p.id === selectedId)
-  const arcs = useMemo(
+  const selectionArcs = useMemo<Arc[]>(
     () =>
-      me && target && target.id !== me.id && me.lat !== null && target.lat !== null
-        ? [{ startLat: me.lat, startLng: me.lng, endLat: target.lat, endLng: target.lng }]
+      me && target && target.id !== me.id && me.lat !== null && me.lng !== null && target.lat !== null && target.lng !== null
+        ? [{ startLat: me.lat, startLng: me.lng, endLat: target.lat, endLng: target.lng, colors: AIRMAIL[0] }]
         : [],
     [me, target],
   )
+  const arcs = useMemo(() => [...selectionArcs, ...landingArcs], [selectionArcs, landingArcs])
+
+  // Your note just went out: your pin pings as the envelope reaches the globe.
+  useEffect(() => {
+    const on = () =>
+      setTimeout(() => {
+        const mine = pinEls.current.get(meId)
+        if (mine) replay(mine.av, 'ping', 1900)
+      }, reduceMotion ? 0 : 1250)
+    addEventListener(SEALED, on)
+    return () => removeEventListener(SEALED, on)
+  }, [meId])
+
+  // A new issue lands: one airmail arc from each person to you, a ping as each arrives, then a
+  // 💌 on every pin. Plays once per issue (the layout remembers which one you've seen).
+  const playedFor = useRef<string | null>(null)
+  const peopleRef = useRef(people)
+  useEffect(() => {
+    peopleRef.current = people
+  }, [people])
+  const onLandedRef = useRef(onLanded)
+  useEffect(() => {
+    onLandedRef.current = onLanded
+  }, [onLanded])
+  useEffect(() => {
+    if (!landing || !globeReady || playedFor.current === landing.id) return
+    playedFor.current = landing.id
+    const g = ref.current
+    const everyone = peopleRef.current.filter((p) => p.lat !== null && p.lng !== null)
+    const home = everyone.find((p) => p.id === meId) ?? everyone[0]
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const later = (ms: number, f: () => void) => timers.push(setTimeout(f, reduceMotion ? 0 : ms))
+    const pin = (id: string) => pinEls.current.get(id)?.av
+
+    later(400, () => setToast(`Issue ${landing.issue} has landed`))
+    if (home && g && !reduceMotion) {
+      const controls = g.controls() as unknown as { autoRotate: boolean }
+      controls.autoRotate = false
+      g.pointOfView(
+        sheet === 'bottom'
+          ? { lat: home.lat!, lng: home.lng! + 10, altitude: 2.3 }
+          : { lat: home.lat! - 8, lng: home.lng!, altitude: 2.5 },
+        1000,
+      )
+    }
+    const senders = home ? everyone.filter((p) => p.id !== home.id) : []
+    senders.forEach((p, i) => {
+      const at = 900 + i * 260
+      later(at, () => {
+        const a = pin(p.id)
+        if (a) replay(a, 'ping', 900)
+        if (!reduceMotion && home)
+          setLandingArcs((list) => [
+            ...list,
+            { startLat: p.lat!, startLng: p.lng!, endLat: home.lat!, endLng: home.lng!, colors: AIRMAIL[i % 2], landing: true },
+          ])
+      })
+    })
+    const arrived = 900 + senders.length * 260 + 1300
+    later(arrived, () => {
+      if (home) {
+        const a = pin(home.id)
+        if (a) replay(a, 'ping', 1900)
+      }
+      everyone.forEach((p, i) => setTimeout(() => pin(p.id)?.classList.add('landed'), reduceMotion ? 0 : i * 90))
+    })
+    later(arrived + 1600, () => setLandingArcs([]))
+    later(arrived + 3200, () => {
+      setToast(null)
+      onLandedRef.current?.()
+    })
+    later(arrived + 9000, () => everyone.forEach((p) => pin(p.id)?.classList.remove('landed')))
+    // Timers deliberately survive re-renders; the animation is short and idempotent.
+  }, [landing, globeReady, meId, sheet])
 
   // Fly to the selected person (offset so the sheet doesn't cover them); spin gently otherwise.
   useEffect(() => {
@@ -227,6 +323,7 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
   function ready() {
     const g = ref.current
     if (!g) return
+    setGlobeReady(true)
     const [amb, sun] = g.lights() as unknown as [{ intensity: number }, { intensity: number; position: { set: (x: number, y: number, z: number) => void } }]
     amb.intensity = 2.7
     sun.intensity = 1.5
@@ -268,12 +365,12 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
           polygonAltitude={0.011}
           polygonsTransitionDuration={0}
           arcsData={arcs}
-          arcColor={() => ['#f5b400', '#f08c00']}
-          arcStroke={0.7}
+          arcColor={(a: object) => (a as Arc).colors}
+          arcStroke={(a: object) => ((a as Arc).landing ? 0.9 : 0.7)}
           arcAltitudeAutoScale={0.35}
-          arcDashLength={0.45}
-          arcDashGap={0.14}
-          arcDashAnimateTime={reduceMotion ? 0 : 2200}
+          arcDashLength={(a: object) => ((a as Arc).landing ? 0.4 : 0.45)}
+          arcDashGap={(a: object) => ((a as Arc).landing ? 3 : 0.14)}
+          arcDashAnimateTime={(a: object) => (reduceMotion ? 0 : (a as Arc).landing ? 1400 : 2200)}
           htmlElementsData={pins}
           htmlLat="lat"
           htmlLng="lng"
@@ -287,6 +384,14 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
           onGlobeReady={ready}
         />
       )}
+      <div aria-live="polite" className="pointer-events-none absolute inset-x-0 bottom-5 z-10 flex justify-center">
+        {toast && (
+          <p className="landing-toast flex items-center gap-2 rounded-full border border-white/90 bg-white/80 py-2 pl-3 pr-4 text-[14.5px] font-bold text-glass-text shadow-[0_12px_30px_rgba(36,56,92,.18)] backdrop-blur-[22px]">
+            <span aria-hidden="true">💌</span>
+            {toast}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

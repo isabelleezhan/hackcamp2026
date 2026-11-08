@@ -8,6 +8,7 @@ import ComposeFab from './ComposeFab'
 import { GroupContext, type GroupState, type Person } from './context'
 import GroupRail from './GroupRail'
 import PeriodCountdown from './PeriodCountdown'
+import SealAnimation from './SealAnimation'
 
 const GlobeView = lazy(() => import('../globe/GlobeView'))
 
@@ -41,6 +42,16 @@ function useStored<T>(key: string, initial: T) {
     }
   }, [key, value])
   return [value, setValue] as const
+}
+
+/** The last issue whose landing you've watched in this group, so it plays once. */
+const seenKey = (groupId: string) => `landed:${groupId}`
+function seenIssue(groupId: string) {
+  try {
+    return localStorage.getItem(seenKey(groupId))
+  } catch {
+    return null
+  }
 }
 
 const MIN_W = 320
@@ -89,6 +100,7 @@ export default function GroupLayout() {
   const [counts, setCounts] = useState<NoteCount[]>([])
   const [latest, setLatest] = useState<Edition | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [, setSeenTick] = useState(0)
 
   const [width, setWidth] = useStored('sheet:width', 400)
   const [heightPct, setHeightPct] = useStored('sheet:height', 58)
@@ -151,6 +163,20 @@ export default function GroupLayout() {
         : null,
     [group, profile, people, period, latest, refresh],
   )
+
+  const landing =
+    latest?.status === 'published' && latest.group_id === groupId && seenIssue(groupId) !== latest.id
+      ? { id: latest.id, issue: latest.issue_number }
+      : null
+  const markLanded = useCallback(() => {
+    if (!latest) return
+    try {
+      localStorage.setItem(seenKey(latest.group_id), latest.id)
+    } catch {
+      /* private mode: it may play again next time, which is fine */
+    }
+    setSeenTick((n) => n + 1)
+  }, [latest])
 
   const select = (id: string | null) => navigate(id ? `/groups/${groupId}/people/${id}` : `/groups/${groupId}/people`)
 
@@ -232,6 +258,8 @@ export default function GroupLayout() {
               selectedId={selectedId}
               onSelect={select}
               sheet={narrow ? 'bottom' : 'none'}
+              landing={landing}
+              onLanded={markLanded}
             />
           </Suspense>
         </div>
@@ -368,6 +396,7 @@ export default function GroupLayout() {
           <ComposeFab narrow={narrow} lift={narrow && collapsed ? PEEK : 0} />
         </GroupContext.Provider>
       )}
+      <SealAnimation />
     </main>
   )
 }

@@ -9,6 +9,7 @@ import { useProfile } from '../account/context'
 import { useGroup } from './context'
 import NoteComposer, { type NoteInput } from './NoteComposer'
 import { clock } from './useRecorder'
+import { announceSealed } from '../../lib/mailEvents'
 
 const listNames = (names: string[]) =>
   names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
@@ -174,6 +175,7 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
       setNotes((previous) =>
         editing ? previous.map((note) => (note.id === saved.id ? saved : note)) : [...previous, saved],
       )
+      if (!editing) announceSealed()
       setEditing(null)
       const sent = copies.filter((c) => c.ok).map((c) => c.name)
       const failed = copies.filter((c) => !c.ok).map((c) => c.name)

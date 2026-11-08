@@ -3,6 +3,7 @@ import Avatar from '../../components/Avatar'
 import { api } from '../../lib/api'
 import type { Edition, EditionImage, MemberUpdate, Newspaper, Story } from '../../lib/types'
 import { smart } from '../../lib/typography'
+import Postmark from './Postmark'
 
 type Props = {
   edition: Edition & { content: Newspaper }
@@ -100,11 +101,16 @@ export default function EditionView({ edition, groupName, timeZone, photos = {} 
       <header className="grid gap-3">
         <div className="grid gap-2">
           {/* Stacked, so long group names never squeeze the date in a narrow sheet. */}
-          <div className="grid gap-0.5">
-            <b className="font-display text-[18px] font-bold leading-tight">{groupName}</b>
-            <span className="text-[12.5px] text-card-muted">
-              Issue {edition.issue_number}, {issueDate(edition.published_at ?? edition.created_at, timeZone)}
-            </span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="grid min-w-0 gap-0.5 pt-1">
+              <b className="font-display text-[18px] font-bold leading-tight">{groupName}</b>
+              <span className="text-[12.5px] text-card-muted">
+                Issue {edition.issue_number}, {issueDate(edition.published_at ?? edition.created_at, timeZone)}
+              </span>
+            </div>
+            <div className="-my-2 -mr-1 shrink-0">
+              <Postmark issue={edition.issue_number} iso={edition.published_at ?? edition.created_at} timeZone={timeZone} />
+            </div>
           </div>
           {/* Airmail stripe, like the border of an envelope. */}
           <div
