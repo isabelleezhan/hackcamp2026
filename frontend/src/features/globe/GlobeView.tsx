@@ -19,6 +19,8 @@ type Props = {
   /** A newly published issue to celebrate once: mail flies in from everyone to you. */
   landing?: { id: string; issue: number } | null
   onLanded?: () => void
+  /** How far above the globe box's bottom edge the visible globe ends (a sheet may cover it). */
+  coveredBottom?: string
 }
 
 type Arc = { startLat: number; startLng: number; endLat: number; endLng: number; colors: [string, string]; landing?: boolean }
@@ -102,7 +104,7 @@ function useLand() {
   }, [])
 }
 
-export default function GlobeView({ people, meId, selectedId, onSelect, sheet, landing = null, onLanded }: Props) {
+export default function GlobeView({ people, meId, selectedId, onSelect, sheet, landing = null, onLanded, coveredBottom = '0px' }: Props) {
   const ref = useRef<GlobeMethods | undefined>(undefined)
   const box = useRef<HTMLDivElement>(null)
   const pinEls = useRef(new Map<string, { root: HTMLElement; av: HTMLElement; name: HTMLElement }>())
@@ -384,7 +386,8 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet, l
           onGlobeReady={ready}
         />
       )}
-      <div aria-live="polite" className="pointer-events-none absolute inset-x-0 bottom-5 z-10 flex justify-center">
+      <div aria-live="polite" className="pointer-events-none absolute inset-x-0 z-10 flex justify-center transition-[bottom] duration-500 ease-[cubic-bezier(.22,.8,.3,1)] motion-reduce:transition-none"
+        style={{ bottom: `calc(${coveredBottom} + 20px)` }}>
         {toast && (
           <p className="landing-toast flex items-center gap-2 rounded-full border border-white/90 bg-white/80 py-2 pl-3 pr-4 text-[14.5px] font-bold text-glass-text shadow-[0_12px_30px_rgba(36,56,92,.18)] backdrop-blur-[22px]">
             <span aria-hidden="true">💌</span>

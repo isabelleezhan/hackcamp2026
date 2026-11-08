@@ -257,6 +257,7 @@ export default function GroupLayout() {
               sheet={narrow ? 'bottom' : 'none'}
               landing={landing}
               onLanded={markLanded}
+              coveredBottom={narrow && !collapsed ? `calc(${heightPct}dvh - ${PEEK}px)` : '0px'}
             />
           </Suspense>
         </div>
