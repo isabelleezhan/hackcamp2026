@@ -5,6 +5,10 @@ Members see the schedule and next publication date. Cutoffs are always 23:59 the
 fixed America/Vancouver (Pacific) publication time zone, with no time controls. Everyone sees the
 same publication date regardless of their device time zone. n8n must use America/Vancouver too.
 The backend requires migration 0008 for saving schedules.
+The group header countdown ticks without rerendering the globe. At the cutoff it shows
+"Notes closed · awaiting publication", bypasses the API cache to check for the next period every
+five seconds, and resets when the backend opens it. Focusing the page also checks for a changed
+period or deadline. The client never invents a next period or publishes an issue itself.
 
 Production is hosted at https://whydidmyfriendsleaveme.vercel.app with the backend at
 https://whydidmyfriendsleavemee.onrender.com. Set the Vercel project's **Root Directory** to

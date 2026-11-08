@@ -1,6 +1,15 @@
 # Supabase setup
 
-## Pending: `0008_publication_schedules.sql`
+## Scheduling and group management: live schema verified November 8, 2026
+
+Read-only REST metadata confirms `leave_group_for`, `delete_group_for`, `delete_group_rows`,
+`set_publication_schedule`, and the publication columns already exist in project
+`ivjlummkprxwybqqfgor`. Do not rerun migrations 0007 or 0008 on that project.
+If SQL Editor reports `function "leave_group_for" already exists`, run `ROLLBACK;` to clear the
+failed transaction and stop rerunning 0007. This error does not mean you need to drop the function.
+On another database, check existing schema/migration history before applying anything.
+
+## `0008_publication_schedules.sql` (new database setup)
 
 Apply the complete file once after 0007 before deploying schedule settings. It adds organizer-managed
 weekly weekdays (Monday=0 through Sunday=6) and intervals of 1–365 calendar days. Cutoffs are fixed at
@@ -14,7 +23,7 @@ changing settings. Unchanged saves preserve the interval anchor, and late worker
 Run `tests/verify_publication_schedules.sql` afterward; it rolls back all test data.
 
 Migration 0008 and its regression checks passed in isolated PostgreSQL with auth/storage stubs and
-all migrations 0001–0008 applied. This does not indicate that 0008 has been applied to the live project.
+all migrations 0001–0008 applied. Live presence checks above are separate from these isolated tests.
 
 Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql`,
 `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql`.

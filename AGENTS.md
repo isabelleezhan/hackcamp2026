@@ -183,13 +183,16 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 - Per person per week: ≤ 30 notes and ≤ 1,800 s of audio.
 
 ## Status (update as you go)
-- **Publication schedules implemented; migration `0008_publication_schedules.sql` is pending.**
+- **Publication schedules implemented; live schema presence verified November 8, 2026.**
   Organizer-only day controls, database-owned 23:59 cutoffs, anchored intervals, weekly weekdays,
   and atomic schedule changes/closure. Existing future periods move to the new default Sunday
-  publication cutoff; overdue periods and historical editions are preserved. Apply 0008 after 0007
-  before deploying the new schedule API. Limits of 30 notes/1,800 audio seconds apply per issue period.
+  publication cutoff; overdue periods and historical editions are preserved. For new databases, apply
+  0008 after 0007 before using the schedule API. Limits of 30 notes/1,800 audio seconds apply per issue period.
   Migration 0008 also normalizes all group time zones to America/Vancouver and enforces that fixed
   publication zone in the database and group-create API. Profile time zones remain unchanged.
+  Live REST metadata confirms the group-management RPCs and schedule RPC/columns already exist;
+  do not rerun 0007 or 0008 on that project. Header countdown ticks locally, shows an awaiting-publication
+  state at the cutoff, and checks for the next server period every five seconds while due or on focus.
 Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 - **Backend implemented (starting at commit `2a1d590`, Alson).** See [backend/README.md](backend/README.md). For
@@ -240,8 +243,8 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 - **Rename, leave and delete:** `0007_group_management.sql` adds `leave_group_for`,
   `delete_group_for` and an internal `delete_group_rows`, and lets the reflection guard allow deletes
-  only while a group is being deleted. **Not applied to the live project yet**; leave/delete fail
-  until it is (rename works without it).
+  only while a group is being deleted. **RPC presence verified on the live project November 8, 2026.**
+  Do not rerun 0007: a duplicate `leave_group_for` error means that function is already installed.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

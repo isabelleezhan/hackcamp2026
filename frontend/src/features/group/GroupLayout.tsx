@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link, NavLink, Outlet, useMatch, useNavigate, useParams } from 'react-router'
 import { api, ApiError } from '../../lib/api'
-import { timeUntil } from '../../lib/time'
 import type { Edition, Group, Member, NoteCount, Period } from '../../lib/types'
 import { useProfile } from '../account/context'
 import ComposeFab from './ComposeFab'
 import { GroupContext, type GroupState, type Person } from './context'
 import GroupRail from './GroupRail'
+import PeriodCountdown from './PeriodCountdown'
 
 const GlobeView = lazy(() => import('../globe/GlobeView'))
 
@@ -287,7 +287,7 @@ export default function GroupLayout() {
         <header className={`flex flex-none items-center justify-between gap-2 px-4 pb-2 ${narrow ? 'pt-0' : 'pt-3'}`}>
           <div className="min-w-0">
             <h1 className="truncate text-[19px] font-extrabold tracking-[-0.01em]">{group?.name ?? ' '}</h1>
-            {period && <p className="text-[12.5px] font-semibold text-accent-text">Closes in {timeUntil(period.deadline_at)}</p>}
+            {period && <PeriodCountdown period={period} refresh={refresh} />}
           </div>
           <div className="flex shrink-0 items-center">
             <Link to="settings" aria-label="Group settings" className={iconButton}>

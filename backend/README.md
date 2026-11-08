@@ -162,7 +162,9 @@ Edition content is validated JSON: headline, introduction, attributed member_upd
 
 ## n8n and retries
 
-Apply `supabase/migrations/0008_publication_schedules.sql` after 0007 before using schedules.
+For a new database, apply `supabase/migrations/0008_publication_schedules.sql` after 0007 before
+using schedules. Live schema metadata already confirms the group-management functions and
+scheduling columns/RPC exist; do not rerun those migrations on the existing project.
 Organizers use `PUT /groups/{group_id}/schedule` with either `{ "mode": "weekly", "weekday": 0 }`
 (Monday=0 through Sunday=6) or `{ "mode": "interval", "interval_days": 2 }` (1–365 whole days).
 Both routes and the database RPC enforce organizer access; no custom times are accepted.

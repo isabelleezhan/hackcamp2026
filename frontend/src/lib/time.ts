@@ -23,11 +23,18 @@ export function weekday(tz?: string | null, date = new Date()) {
 /** "1 day 4 hr", "3 hr 10 min", "12 min". */
 export function timeUntil(iso: string, now = Date.now()) {
   const ms = Math.max(0, new Date(iso).getTime() - now)
-  const h = Math.floor(ms / 36e5)
+  const minutes = Math.ceil(ms / 6e4)
+  const h = Math.floor(minutes / 60)
   const d = Math.floor(h / 24)
-  const m = Math.floor(ms / 6e4) % 60
+  const m = minutes % 60
   if (d >= 1) return `${d} day${d > 1 ? 's' : ''} ${h % 24} hr`
   return h ? `${h} hr ${m} min` : `${m} min`
+}
+
+export function periodCountdownLabel(period: { deadline_at: string; closed_at: string | null }, now = Date.now()) {
+  return period.closed_at || new Date(period.deadline_at).getTime() <= now
+    ? 'Notes closed · awaiting publication'
+    : `Closes in ${timeUntil(period.deadline_at, now)}`
 }
 
 /** The note cutoff in the group's time zone, e.g. "Saturday at 11:59 p.m.". */
