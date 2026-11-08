@@ -33,7 +33,11 @@ class Jobs:
             sources = await self.store.rows(
                 "edition_sources", admin=True, edition_id=f"eq.{edition_id}"
             )
-            newspaper = await self.gemini.newspaper(sources)
+            groups = await self.store.rows(
+                "groups", admin=True, id=f"eq.{claim['group_id']}", select="name"
+            )
+            group_name = groups[0].get("name") if groups else None
+            newspaper = await self.gemini.newspaper(sources, group_name=group_name)
             return await self.store.rpc(
                 "finish_generation",
                 {

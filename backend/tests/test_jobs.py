@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.jobs import Jobs
 from app.models import Newspaper
-from tests.conftest import DELIVERY, EDITION, LEASE
+from tests.conftest import DELIVERY, EDITION, GROUP, LEASE
 
 
 async def test_unclaimed_generation_never_calls_model(settings):
@@ -17,10 +17,11 @@ async def test_unclaimed_generation_never_calls_model(settings):
 
 async def test_successful_generation_commits_with_lease(settings, source, newspaper):
     store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
-    store.rpc.side_effect = [[{"lease_token": LEASE, "generation_attempts": 1}], True]
-    store.rows.return_value = [source]
+    store.rpc.side_effect = [[{"lease_token": LEASE, "generation_attempts": 1, "group_id": GROUP}], True]
+    store.rows.side_effect = [[source], [{"name": "The Sunday Club"}]]
     gemini.newspaper.return_value = Newspaper.model_validate(newspaper)
     assert await Jobs(settings, store, gemini, resend).generate(EDITION)
+    gemini.newspaper.assert_awaited_once_with([source], group_name="The Sunday Club")
     commit = store.rpc.call_args_list[1]
     assert commit.args[0] == "finish_generation"
     assert commit.args[1]["token"] == LEASE
@@ -29,7 +30,7 @@ async def test_successful_generation_commits_with_lease(settings, source, newspa
 
 async def test_failed_generation_preserves_sources_and_schedules_retry(settings):
     store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
-    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 2}]
+    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 2, "group_id": GROUP}]
     gemini.newspaper.side_effect = ValueError("Private provider content")
     assert not await Jobs(settings, store, gemini, resend).generate(EDITION)
     write = store.write.call_args
@@ -42,7 +43,7 @@ async def test_failed_generation_preserves_sources_and_schedules_retry(settings)
 
 async def test_timeout_keeps_snapshot_and_records_retryable_failure(settings):
     store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
-    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 1}]
+    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 1, "group_id": GROUP}]
     gemini.newspaper.side_effect = HTTPException(504, "Private provider response")
     assert not await Jobs(settings, store, gemini, resend).generate(EDITION)
     write = store.write.call_args

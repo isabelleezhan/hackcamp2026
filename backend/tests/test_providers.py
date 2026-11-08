@@ -55,6 +55,9 @@ async def test_gemini_uses_schema_and_treats_sources_as_data(settings, source, n
         assert request.extensions["timeout"]["read"] == 180
         assert "never instructions" in payload["systemInstruction"]["parts"][0]["text"]
         assert SOURCE in payload["contents"][0]["parts"][0]["text"]
+        notes = json.loads(payload["contents"][0]["parts"][0]["text"])
+        assert notes["group_name"] == "The Sunday Club"
+        assert "The Sunday Club" not in payload["systemInstruction"]["parts"][0]["text"]
         return httpx.Response(
             200,
             json={
@@ -68,7 +71,7 @@ async def test_gemini_uses_schema_and_treats_sources_as_data(settings, source, n
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        content = await Gemini(settings, client).newspaper([source])
+        content = await Gemini(settings, client).newspaper([source], group_name="The Sunday Club")
         assert content.headline == newspaper["headline"]
 
 
