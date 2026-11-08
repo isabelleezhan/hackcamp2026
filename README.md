@@ -1,4 +1,4 @@
-# hackcamp2026 — Community Newspaper
+# hackcamp2026 — MailBuds
 
 Friends and family who live apart send short voice or text notes during the week. Every Sunday at
 6 p.m., Gemini turns everyone's notes into one shared newspaper, shown on a 3D globe of where
@@ -6,7 +6,7 @@ everyone is and emailed to anyone who wants it.
 
 - **How the app works, current decisions, API plan, open questions:** [AGENTS.md](AGENTS.md)
   (read this first; it overrides the PRD where they differ)
-- Original spec: [Community_Newspaper_PRD.md](Community_Newspaper_PRD.md)
+- Original spec: [MailBuds_PRD.md](MailBuds_PRD.md)
 
 ## Backend
 

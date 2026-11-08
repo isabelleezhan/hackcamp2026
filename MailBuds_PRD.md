@@ -1,4 +1,4 @@
-# Community Newspaper — Product Requirements
+# MailBuds — Product Requirements
 
 **Status:** Hackathon MVP · **Build budget:** 12 hours · **Name:** TBD
 

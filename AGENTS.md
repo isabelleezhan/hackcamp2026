@@ -1,7 +1,7 @@
-# AGENTS.md — Community Newspaper (HackCamp 2026)
+# AGENTS.md — MailBuds (HackCamp 2026)
 
 Context for any coding agent or teammate working in this repo. **Where this file and
-[Community_Newspaper_PRD.md](Community_Newspaper_PRD.md) disagree, this file wins**: it records
+[MailBuds_PRD.md](MailBuds_PRD.md) disagree, this file wins**: it records
 decisions made after the PRD was written. If you change a decision, update this file in the same commit.
 
 Hackathon: HackCamp 2026, hacking Nov 7 12:00 → Nov 8 12:00 (Pacific), submitted on Devpost,
@@ -155,6 +155,9 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 | `POST /groups/join` `{code}` | user | join by code |
 | `GET /groups/{id}` | member | group, members (name, city, lat/lng, timezone, notes this week), current period |
 | `PATCH /groups/{id}/membership` `{email_opt_in}` | member | email preference |
+| `PATCH /groups/{id}` `{name}` | organizer | rename the newsletter |
+| `POST /groups/{id}/leave` | member | leave; your open-week notes are removed; last organizer can't leave while others remain |
+| `DELETE /groups/{id}` | organizer | delete the newsletter and everything in it, for everyone |
 | `POST /groups/{id}/transcribe` (multipart audio) | member | → `{transcript, audio_path, audio_seconds}` |
 | `GET /groups/{id}/notes/mine` | member | my notes in the current period |
 | `POST /groups/{id}/notes` | member | add note (checks weekly limit and that the period is open) |
@@ -217,6 +220,11 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   `avatars` bucket. **Applied to the live project on November 8, 2026** (verified: column and
   private bucket exist). The app crops photos to a 320px square JPEG (which drops EXIF/GPS) and
   only group members get the 6-hour signed links.
+
+- **Rename, leave and delete:** `0007_group_management.sql` adds `leave_group_for`,
+  `delete_group_for` and an internal `delete_group_rows`, and lets the reflection guard allow deletes
+  only while a group is being deleted. **Not applied to the live project yet**; leave/delete fail
+  until it is (rename works without it).
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

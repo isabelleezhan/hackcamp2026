@@ -11,7 +11,7 @@ from tests.test_api import AUTH, make_client
 def nominatim(address, calls):
     def handler(request):
         assert request.url.host == "nominatim.openstreetmap.org"
-        assert "CommunityNewspaper" in request.headers["user-agent"]
+        assert "MailBuds" in request.headers["user-agent"]
         assert "@" not in request.headers["user-agent"]  # no personal data
         calls.append(dict(request.url.params))
         if address is None:

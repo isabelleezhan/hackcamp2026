@@ -133,6 +133,27 @@ route('POST', '/groups/join', ({ body }) => {
   return { id: g.id }
 })
 route('GET', '/groups/:gid', ({ p }) => groupView(groups[p.gid]))
+route('PATCH', '/groups/:gid', ({ p, body }) => {
+  if (membership(p.gid).role !== 'organizer') return [403, { detail: 'Only organizers can rename the newsletter' }]
+  const name = String(body.name ?? '').trim()
+  if (!name) return [422, { detail: 'Enter a name' }]
+  groups[p.gid].name = name.slice(0, 120)
+  return groupView(groups[p.gid])
+})
+route('POST', '/groups/:gid/leave', ({ p }) => {
+  const others = memberships.filter((m) => m.group_id === p.gid && m.user_id !== ME)
+  if (membership(p.gid).role === 'organizer' && others.length && !others.some((m) => m.role === 'organizer'))
+    return [409, { detail: "You're the only organizer. Delete the newsletter instead, or leave once everyone else has gone." }]
+  memberships.splice(memberships.indexOf(membership(p.gid)), 1)
+  if (!others.length) delete groups[p.gid]
+  return [204, null]
+})
+route('DELETE', '/groups/:gid', ({ p }) => {
+  if (membership(p.gid).role !== 'organizer') return [403, { detail: 'Only organizers can delete the newsletter' }]
+  for (let i = memberships.length - 1; i >= 0; i--) if (memberships[i].group_id === p.gid) memberships.splice(i, 1)
+  delete groups[p.gid]
+  return [204, null]
+})
 route('PUT', '/groups/:gid/email-preference', ({ p, body }) => {
   membership(p.gid).email_enabled = Boolean(body.enabled)
   return { email_enabled: Boolean(body.enabled) }

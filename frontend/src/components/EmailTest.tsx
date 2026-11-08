@@ -3,8 +3,8 @@ import { api } from '../lib/api'
 
 export default function EmailTest() {
   const [to, setTo] = useState('')
-  const [subject, setSubject] = useState('Test email from Community Newspaper')
-  const [message, setMessage] = useState('Hello! This is a test email from Community Newspaper.')
+  const [subject, setSubject] = useState('Test email from MailBuds')
+  const [message, setMessage] = useState('Hello! This is a test email from MailBuds.')
   const [pdf, setPdf] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

@@ -4,7 +4,7 @@ import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
 
-root.render(<p className="p-8">Loading Community Newspaper…</p>)
+root.render(<p className="p-8">Loading MailBuds…</p>)
 
 // Import after mounting so configuration failures are visible on the page.
 async function start() {
@@ -15,7 +15,7 @@ async function start() {
     console.error('Frontend startup failed:', error)
     root.render(
       <main className="mx-auto max-w-xl px-6 py-16">
-        <h1 className="font-display text-3xl font-bold">Community Newspaper</h1>
+        <h1 className="font-display text-3xl font-bold">MailBuds</h1>
         <h2 className="mt-6 text-xl font-semibold">Frontend setup needs attention</h2>
         <p role="alert" className="mt-3 whitespace-pre-wrap">
           {error instanceof Error ? error.message : 'The app could not start. Check the browser console.'}

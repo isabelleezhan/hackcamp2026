@@ -36,6 +36,7 @@ from app.models import (
     EmailPreference,
     GroupCreate,
     GroupJoin,
+    GroupRename,
     ProfileUpdate,
     PublishRequest,
     ReflectionWrite,
@@ -189,7 +190,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             )
             yield
 
-    app = FastAPI(title="Community Newspaper API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="MailBuds API", version="0.1.0", lifespan=lifespan)
     app.include_router(audio_router)
     app.include_router(geocode_router)
     app.include_router(email_router)
@@ -385,6 +386,97 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             "membership": member,
             "invitation_url": f"{settings.frontend_url}/join?code={rows[0]['join_code']}",
         }
+
+    @app.patch("/groups/{group_id}", tags=["Groups"])
+    async def rename_group(group_id: UUID, data: GroupRename, user: User, store: Database):
+        """Rename a newsletter. Organizers only."""
+        member = await membership(store, user, group_id)
+        if member["role"] != "organizer":
+            raise HTTPException(403, "Only organizers can rename the newsletter")
+        rows = await store.write(
+            "PATCH", "groups", {"name": data.name}, admin=True, id=f"eq.{group_id}"
+        )
+        if not rows:
+            raise HTTPException(404, "Group not found")
+        return {
+            **rows[0],
+            "membership": member,
+            "invitation_url": f"{settings.frontend_url}/join?code={rows[0]['join_code']}",
+        }
+
+    @app.post("/groups/{group_id}/leave", status_code=204, tags=["Groups"])
+    async def leave_group(group_id: UUID, user: User, store: Database):
+        """Leave a newsletter. Your notes in the open week are removed; published issues stay."""
+        await membership(store, user, group_id)
+        files = await group_files(store, group_id, user_id=user.id, open_week_only=True)
+        await store.rpc(
+            "leave_group_for", {"actor_id": str(user.id), "gid": str(group_id)}, admin=True
+        )
+        await remove_files(store, files)
+        return Response(status_code=204)
+
+    @app.delete("/groups/{group_id}", status_code=204, tags=["Groups"])
+    async def delete_group(group_id: UUID, user: User, store: Database):
+        """Delete a newsletter and everything in it, for everyone. Organizers only."""
+        member = await membership(store, user, group_id)
+        if member["role"] != "organizer":
+            raise HTTPException(403, "Only organizers can delete the newsletter")
+        files = await group_files(store, group_id)
+        await store.rpc(
+            "delete_group_for", {"actor_id": str(user.id), "gid": str(group_id)}, admin=True
+        )
+        await remove_files(store, files)
+        return Response(status_code=204)
+
+    async def group_files(
+        store: Store, group_id: UUID, *, user_id: UUID | None = None, open_week_only=False
+    ) -> dict[str, list[str]]:
+        """Stored audio and note images that will be orphaned when notes are deleted."""
+        filters = {"group_id": f"eq.{group_id}"}
+        if user_id:
+            filters["user_id"] = f"eq.{user_id}"
+        notes = await store.rows(
+            "reflections", admin=True, select="id,audio_path,period_id", **filters
+        )
+        if open_week_only:
+            periods = await store.rows(
+                "issue_periods",
+                admin=True,
+                group_id=f"eq.{group_id}",
+                closed_at="is.null",
+                deadline_at=f"gt.{datetime.now(UTC).isoformat()}",
+                select="id",
+            )
+            open_ids = {p["id"] for p in periods}
+            notes = [n for n in notes if n["period_id"] in open_ids]
+        images: list[str] = []
+        ids = [n["id"] for n in notes]
+        for start in range(0, len(ids), 100):
+            rows = await store.rows(
+                "reflection_images",
+                admin=True,
+                reflection_id=f"in.({','.join(ids[start : start + 100])})",
+                select="storage_path",
+            )
+            images += [r["storage_path"] for r in rows if r.get("storage_path")]
+        return {
+            "reflection-audio": [n["audio_path"] for n in notes if n.get("audio_path")],
+            "reflection-images": images,
+        }
+
+    async def remove_files(store: Store, files: dict[str, list[str]]) -> None:
+        """Best effort: rows are already gone, so a leftover file is unreachable anyway."""
+        for bucket, paths in files.items():
+            for start in range(0, len(paths), 100):
+                try:
+                    await store.request(
+                        "DELETE",
+                        f"/storage/v1/object/{bucket}",
+                        admin=True,
+                        json={"prefixes": paths[start : start + 100]},
+                    )
+                except HTTPException:
+                    pass
 
     @app.put("/groups/{group_id}/email-preference", tags=["Groups"])
     async def preference(group_id: UUID, data: EmailPreference, user: User, store: Database):

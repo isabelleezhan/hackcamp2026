@@ -56,7 +56,7 @@ export default function Login() {
   }
   const title = currentMode === 'signup' ? 'Create an account' : currentMode === 'forgot' ? 'Reset password' : currentMode === 'reset' ? 'Set a new password' : 'Sign in'
   return <GlassPage><div className="grid gap-5 py-6 sm:max-w-sm">
-    <div><h1 className="text-[28px] font-extrabold">Community Newspaper</h1><p className="mt-1 text-glass-muted">A few lines from everyone, every week.</p></div>
+    <div><h1 className="text-[28px] font-extrabold">MailBuds</h1><p className="mt-1 text-glass-muted">A few lines from everyone, every week.</p></div>
     <h2 className="text-xl font-bold">{title}</h2>
     {!configured && <p role="alert">Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in frontend/.env.local, then restart the frontend.</p>}
     <form onSubmit={submit} className="grid gap-3">
