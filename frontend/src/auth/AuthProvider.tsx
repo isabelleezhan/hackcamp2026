@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'r
 import type { Session } from '@supabase/supabase-js'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import GlassPage, { pillButton } from '../components/GlassPage'
-import { ApiError, setTokenGetter } from '../lib/api'
+import { ApiError, clearApiCache, setTokenGetter } from '../lib/api'
 import { initialPasswordRecovery, supabase, supabaseConfigured } from '../lib/supabase'
 import { AuthContext, useAuth, type AuthState } from './context'
 
@@ -27,7 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return
     let active = true
     let eventReceived = false
+    let accountId: string | null = null
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, next) => {
+      if (accountId !== (next?.user.id ?? null) || event === 'SIGNED_OUT') clearApiCache()
+      accountId = next?.user.id ?? null
       eventReceived = true
       setSession(next)
       setLoading(false)

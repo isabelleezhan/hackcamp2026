@@ -1,5 +1,12 @@
 # Frontend
 
+API GET responses are cached in memory for 30 seconds (up to 128 entries), with concurrent
+requests deduplicated. Cache keys include the access token and request headers; nothing is saved
+to browser storage. Writes and account changes clear the cache. Group refresh actions bypass it,
+as do signed audio requests and abortable requests. Unfinished editions are never cached, so
+generation polling stays live. Use `api(path, { cache: 'reload' })` to refresh a cached response,
+or `cache: 'no-store'` to bypass caching entirely. Run cache checks with `npm test` (Node 24+).
+
 React 19 + Vite + TypeScript + Tailwind v4. Sign-in with Supabase Auth; all data through the FastAPI backend.
 Product decisions: [../AGENTS.md](../AGENTS.md). Look and feel: the prototype at
 https://claude.ai/artifact/FaK1NSxn8AZmb5bbzddcWB (light clay globe, white frosted sheet, marigold accent).

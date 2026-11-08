@@ -95,16 +95,17 @@ export default function GroupLayout() {
   const drag = useRef<{ startX: number; startY: number; start: number; moved: boolean } | null>(null)
   const [dragging, setDragging] = useState(false)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
+    const options: RequestInit = force ? { cache: 'reload' } : {}
     try {
       const [g, m, p] = await Promise.all([
-        api<Group>(`/groups/${groupId}`),
-        api<Member[]>(`/groups/${groupId}/members`),
-        api<Period>(`/groups/${groupId}/periods/current`).catch(() => null),
+        api<Group>(`/groups/${groupId}`, options),
+        api<Member[]>(`/groups/${groupId}/members`, options),
+        api<Period>(`/groups/${groupId}/periods/current`, options).catch(() => null),
       ])
       const [c, l] = await Promise.all([
-        p ? api<NoteCount[]>(`/groups/${groupId}/periods/${p.id}/note-counts`).catch(() => []) : Promise.resolve([]),
-        api<Edition>(`/groups/${groupId}/editions/latest`).catch(() => null),
+        p ? api<NoteCount[]>(`/groups/${groupId}/periods/${p.id}/note-counts`, options).catch(() => []) : Promise.resolve([]),
+        api<Edition>(`/groups/${groupId}/editions/latest`, options).catch(() => null),
       ])
       setGroup(g)
       setMembers(m)
@@ -122,7 +123,7 @@ export default function GroupLayout() {
   }, [groupId])
 
   useEffect(() => {
-    void refresh()
+    void refresh(false)
   }, [refresh])
 
   const people = useMemo<Person[]>(() => {

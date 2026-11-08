@@ -193,6 +193,10 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   location on new notes, recorder/upload with transcript review and manual fallback, weekly
   limits, and organizer publish confirmation. Existing edition UI handles generation/retry.
   Failed requests retain drafts; closed weeks cannot be edited. Empty publishes create no paper/email.
+- **Frontend navigation caching:** authenticated GET responses use a 30-second, memory-only
+  cache (128 entries) with concurrent request deduplication. Writes and account changes clear it;
+  explicit group refresh bypasses it. Unfinished editions and signed audio URLs are not cached.
+  Cache keys include the access token, keeping account data separate. See `frontend/src/lib/api.ts`.
 
 
 ## Open decisions (ask the team; don't guess)
