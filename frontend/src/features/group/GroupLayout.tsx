@@ -198,19 +198,16 @@ export default function GroupLayout() {
   const sheetStyle = narrow
     ? { height: collapsed ? PEEK : `${heightPct}%` }
     : { width: clampW(width) }
-  // Phones: the globe fills the space above the bottom sheet.
+  // Phones: size the globe for the collapsed sheet and let the open sheet cover it. Dragging the
+  // sheet must not resize the 3D canvas; the sheet is deliberately layered above the globe.
   // Desktop: the globe keeps its full size and glides sideways to stay centred in the space
   // beside the sidebar. Moving it (a GPU transform) is smooth; resizing the 3D canvas isn't.
-  // Collapsing never resizes the 3D canvas (that's what made it glitch): on phones the globe keeps
-  // the open-sheet height and just slides down into the freed space.
   const globeBox = narrow
     ? {
         top: 0,
         left: 0,
         right: 0,
-        height: `${100 - heightPct}%`,
-        transform: collapsed ? `translateY(calc((${heightPct}vh - ${PEEK}px) / 2))` : 'translateY(0)',
-        willChange: 'transform',
+        height: `calc(100% - ${PEEK}px)`,
       }
     : {
         inset: 0,
