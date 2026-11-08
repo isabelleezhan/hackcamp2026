@@ -1,4 +1,5 @@
 import io
+import json
 import wave
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
@@ -79,7 +80,9 @@ def make_client(settings, handler=None, role="organizer", member=True):
                     }
                 ],
             )
-        if request.url.path == "/rest/v1/memberships":
+        if request.url.path == "/rest/v1/memberships" and not (
+            handler and "profiles(" in request.url.params.get("select", "")
+        ):
             assert request.headers["authorization"] == "Bearer test-service"
             return httpx.Response(
                 200, json=[{"group_id": GROUP, "user_id": OWNER, "role": role}] if member else []
@@ -462,6 +465,7 @@ def test_me_preserves_frontend_email_contract(settings):
         assert result.json() == {
             "id": OWNER,
             "display_name": "Alex",
+            "avatar_url": None,
             "email": "owner@example.invalid",
         }
 
@@ -674,3 +678,101 @@ def test_email_preview_hidden_from_outsiders_and_drafts(settings):
     with make_client(settings, unpublished) as client:
         url = f"/groups/{GROUP}/editions/{EDITION}/email-preview"
         assert client.get(url, headers=AUTH).status_code == 404
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_avatar_upload_rejects_non_images_before_storage(settings):
+    def handler(request):
+        if request.url.path.startswith("/storage/"):
+            raise AssertionError("Invalid image must not reach storage")
+        return httpx.Response(200, json=[{"id": OWNER, "avatar_path": None}])
+
+    with make_client(settings, handler) as client:
+        result = client.post(
+            "/me/avatar",
+            headers=AUTH,
+            files={"file": ("photo.png", b"<svg onload=alert(1)>", "image/png")},
+        )
+    assert result.status_code == 415
+
+
+def test_avatar_upload_stores_under_owner_and_returns_signed_url(settings):
+    seen = {}
+
+    def handler(request):
+        path = request.url.path
+        if path.startswith("/storage/v1/object/avatars/"):
+            seen["object"] = path.removeprefix("/storage/v1/object/avatars/")
+            assert request.headers["content-type"] == "image/png"
+            return httpx.Response(200, json={"Key": seen["object"]})
+        if path == "/storage/v1/object/sign/avatars":
+            paths = json.loads(request.content)["paths"]
+            return httpx.Response(
+                200,
+                json=[{"path": p, "signedURL": f"/object/sign/avatars/{p}?token=t"} for p in paths],
+            )
+        if path == "/storage/v1/object/avatars" and request.method == "DELETE":
+            seen["deleted"] = json.loads(request.content)["prefixes"]
+            return httpx.Response(200, json=[])
+        if path == "/rest/v1/profiles" and request.method == "GET":
+            return httpx.Response(200, json=[{"avatar_path": f"{OWNER}/old.jpg"}])
+        if path == "/rest/v1/profiles" and request.method == "PATCH":
+            body = json.loads(request.content)
+            return httpx.Response(200, json=[{"id": OWNER, "display_name": "Alex", **body}])
+        raise AssertionError(f"Unexpected {request.method} {path}")
+
+    with make_client(settings, handler) as client:
+        result = client.post(
+            "/me/avatar", headers=AUTH, files={"file": ("me.png", PNG, "image/png")}
+        )
+    assert result.status_code == 200, result.text
+    assert seen["object"].startswith(f"{OWNER}/") and seen["object"].endswith(".png")
+    assert seen["deleted"] == [f"{OWNER}/old.jpg"]
+    body = result.json()
+    assert "avatar_path" not in body
+    assert body["avatar_url"].endswith(f"/storage/v1/object/sign/avatars/{seen['object']}?token=t")
+
+
+def test_members_include_signed_avatar_urls_only_after_membership_check(settings):
+    def handler(request):
+        if request.url.path == "/rest/v1/memberships" and "profiles" in request.url.params.get(
+            "select", ""
+        ):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "user_id": OWNER,
+                        "role": "organizer",
+                        "profiles": {"display_name": "Alex", "avatar_path": f"{OWNER}/a.png"},
+                    },
+                    {
+                        "user_id": "u2",
+                        "role": "member",
+                        "profiles": {"display_name": "Bo", "avatar_path": None},
+                    },
+                ],
+            )
+        if request.url.path == "/storage/v1/object/sign/avatars":
+            paths = json.loads(request.content)["paths"]
+            assert paths == [f"{OWNER}/a.png"]
+            return httpx.Response(
+                200,
+                json=[{"path": p, "signedURL": f"/object/sign/avatars/{p}?token=t"} for p in paths],
+            )
+        return None
+
+    with make_client(settings, handler) as client:
+        result = client.get(f"/groups/{GROUP}/members", headers=AUTH)
+    assert result.status_code == 200, result.text
+    profiles = [row["profiles"] for row in result.json()]
+    assert all("avatar_path" not in p for p in profiles)
+    assert profiles[0]["avatar_url"].endswith("?token=t")
+    assert profiles[1]["avatar_url"] is None
+
+
+def test_members_refuse_non_members(settings):
+    with make_client(settings, member=False) as client:
+        assert client.get(f"/groups/{GROUP}/members", headers=AUTH).status_code in {403, 404}

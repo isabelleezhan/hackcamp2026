@@ -100,6 +100,22 @@ const route = (method, pattern, handler) =>
 route('GET', '/health', () => ({ status: 'ok' }))
 route('GET', '/me', () => profiles[ME])
 route('PATCH', '/me', ({ body }) => Object.assign(profiles[ME], body, 'city' in body || 'lat' in body ? { location_updated_at: now() } : {}))
+// Profile photo: the real backend stores it privately and returns a signed link; the mock keeps a data URL.
+route('POST', '/me/avatar', ({ raw, type }) => {
+  const boundary = /boundary=(.+)$/.exec(type)?.[1]
+  if (!boundary) return [422, { detail: 'Expected a file' }]
+  const start = raw.indexOf('\r\n\r\n') + 4
+  const end = raw.lastIndexOf(`\r\n--${boundary}`)
+  const image = raw.subarray(start, end)
+  const mime = image[0] === 0xff ? 'image/jpeg' : image[0] === 0x89 ? 'image/png' : null
+  if (!mime) return [415, { detail: 'Choose a JPEG, PNG or WebP image' }]
+  profiles[ME].avatar_url = `data:${mime};base64,${image.toString('base64')}`
+  return profiles[ME]
+})
+route('DELETE', '/me/avatar', () => {
+  profiles[ME].avatar_url = null
+  return profiles[ME]
+})
 route('GET', '/geocode/reverse', ({ query }) => {
   const lat = Number(query.get('lat')), lng = Number(query.get('lng'))
   const known = [['Vancouver', 49.28, -123.12], ['Toronto', 43.65, -79.38], ['London', 51.51, -0.13], ['Lisbon', 38.72, -9.14], ['Tokyo', 35.68, 139.69]]
@@ -123,8 +139,8 @@ route('PUT', '/groups/:gid/email-preference', ({ p, body }) => {
 })
 route('GET', '/groups/:gid/members', ({ p }) =>
   memberships.filter((m) => m.group_id === p.gid).map((m) => {
-    const { display_name, city, lat, lng, timezone, location_updated_at } = profiles[m.user_id]
-    return { user_id: m.user_id, role: m.role, profiles: { display_name, city, lat, lng, timezone, location_updated_at } }
+    const { display_name, city, lat, lng, timezone, location_updated_at, avatar_url = null } = profiles[m.user_id]
+    return { user_id: m.user_id, role: m.role, profiles: { display_name, city, lat, lng, timezone, location_updated_at, avatar_url } }
   }),
 )
 route('GET', '/groups/:gid/periods/current', ({ p }) => currentPeriod(p.gid) ?? [404, { detail: 'No open issue period' }])
@@ -224,7 +240,7 @@ createServer(async (req, res) => {
     const groupId = m.groups?.gid
     if (groupId && !groups[groupId]) return send(res, 404, { detail: 'Group not found' })
     if (groupId && !membership(groupId) && !url.pathname.endsWith('/join')) return send(res, 404, { detail: 'Group not found' })
-    const out = await r.handler({ p: m.groups ?? {}, body, query: url.searchParams })
+    const out = await r.handler({ p: m.groups ?? {}, body, query: url.searchParams, raw, type: req.headers['content-type'] ?? '' })
     const [status, payload] = Array.isArray(out) && typeof out[0] === 'number' ? out : [200, out]
     console.log(req.method, url.pathname, status)
     return send(res, status, payload)

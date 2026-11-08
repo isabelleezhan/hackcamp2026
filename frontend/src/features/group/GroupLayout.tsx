@@ -136,6 +136,7 @@ export default function GroupLayout() {
       lat: m.profiles?.lat ?? null,
       lng: m.profiles?.lng ?? null,
       tz: m.profiles?.timezone ?? null,
+      photo: m.profiles?.avatar_url ?? null,
       notes: byUser.get(m.user_id) ?? 0,
     }))
     // You first, then everyone else alphabetically.
@@ -196,15 +197,33 @@ export default function GroupLayout() {
   const sheetStyle = narrow
     ? { height: collapsed ? PEEK : `${heightPct}%` }
     : { width: clampW(width) }
+  // Phones: the globe fills the space above the bottom sheet.
+  // Desktop: the globe keeps its full size and glides sideways to stay centred in the space
+  // beside the sidebar. Moving it (a GPU transform) is smooth; resizing the 3D canvas isn't.
+  // Collapsing never resizes the 3D canvas (that's what made it glitch): on phones the globe keeps
+  // the open-sheet height and just slides down into the freed space.
   const globeBox = narrow
-    ? { top: 0, left: 0, right: 0, height: collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%` }
-    : // Beside the sheet (tucked a little under its glass), so the focused person is never hidden.
-      { top: 0, bottom: 0, right: 0, left: collapsed ? 0 : clampW(width) - 24 }
+    ? {
+        top: 0,
+        left: 0,
+        right: 0,
+        height: `${100 - heightPct}%`,
+        transform: collapsed ? `translateY(calc((${heightPct}vh - ${PEEK}px) / 2))` : 'translateY(0)',
+        willChange: 'transform',
+      }
+    : {
+        inset: 0,
+        transform: `translateX(${collapsed ? 0 : Math.round((clampW(width) - 24) / 2)}px)`,
+        willChange: 'transform',
+      }
 
   return (
     <main className="sky fixed inset-0 overflow-hidden font-system text-[15px] leading-[1.45] text-glass-text antialiased">
       {value && (
-        <div className="absolute" style={globeBox}>
+        <div
+          className="absolute motion-safe:transition-transform motion-safe:duration-[650ms] motion-safe:ease-[cubic-bezier(.22,.8,.3,1)]"
+          style={globeBox}
+        >
           <Suspense fallback={null}>
             <GlobeView
               people={people}
@@ -218,12 +237,16 @@ export default function GroupLayout() {
       )}
 
       {/* Collapsed on desktop: a small frosted tab brings the sheet back. */}
-      {!narrow && collapsed && (
+      {!narrow && (
         <button
+          tabIndex={collapsed ? 0 : -1}
+          aria-hidden={!collapsed}
           type="button"
           onClick={() => setCollapsed(false)}
           aria-label="Show panel"
-          className="absolute left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] z-10 flex items-center gap-2 rounded-full border border-white/90 bg-glass py-2 pl-3 pr-4 text-[14px] font-semibold shadow-[0_12px_30px_rgba(36,56,92,.18)] backdrop-blur-[22px] backdrop-saturate-[1.4] hover:bg-white/90"
+          className={`absolute left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] z-10 flex items-center gap-2 rounded-full transition-[opacity,translate] duration-300 motion-reduce:transition-none ${
+            collapsed ? 'opacity-100 delay-200' : 'pointer-events-none -translate-x-2 opacity-0'
+          } border border-white/90 bg-glass py-2 pl-3 pr-4 text-[14px] font-semibold shadow-[0_12px_30px_rgba(36,56,92,.18)] backdrop-blur-[22px] backdrop-saturate-[1.4] hover:bg-white/90`}
         >
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M4 6h16M4 12h16M4 18h16" />
@@ -234,11 +257,12 @@ export default function GroupLayout() {
 
       <section
         aria-label={group?.name ?? 'Group'}
-        hidden={!narrow && collapsed}
+        inert={!narrow && collapsed}
+        aria-hidden={!narrow && collapsed}
         style={sheetStyle}
-        className={`absolute z-10 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.18),0_2px_6px_rgba(36,56,92,.06)] backdrop-blur-[22px] backdrop-saturate-[1.4] ${
-          dragging ? '' : 'transition-[height] duration-300 ease-out'
-        } ${
+        className={`absolute z-10 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.18),0_2px_6px_rgba(36,56,92,.06)] backdrop-blur-[22px] backdrop-saturate-[1.4] motion-reduce:transition-none ${
+          dragging ? '' : 'transition-[height,translate,opacity] duration-500 ease-[cubic-bezier(.22,.8,.3,1)]'
+        } ${!narrow && collapsed ? 'pointer-events-none -translate-x-[calc(100%+28px)] opacity-0' : ''} ${
           narrow
             ? 'inset-x-0 bottom-0 rounded-t-[22px] border-b-0'
             : 'bottom-[14px] left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] rounded-[22px]'
@@ -331,7 +355,7 @@ export default function GroupLayout() {
       <GroupRail activeId={groupId} narrow={narrow} sheetTop={narrow ? (collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%`) : null} />
       {value && (
         <GroupContext.Provider value={value}>
-          <ComposeFab narrow={narrow} />
+          <ComposeFab narrow={narrow} lift={narrow && collapsed ? PEEK : 0} />
         </GroupContext.Provider>
       )}
     </main>

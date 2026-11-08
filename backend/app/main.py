@@ -47,6 +47,21 @@ from app.routers.geocode import router as geocode_router
 from app.services.geocode import ReverseGeocoder
 from app.store import Store
 
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+AVATAR_URL_SECONDS = 6 * 60 * 60
+
+
+def image_kind(data: bytes) -> tuple[str, str] | None:
+    """(mime, extension) for JPEG, PNG or WebP bytes; None for anything else."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg", "jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png", "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp", "webp"
+    return None
+
+
 EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_PER_REFLECTION = 6
@@ -214,13 +229,89 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             status_code=200 if all(configured.values()) else 503,
         )
 
+    async def sign_avatars(store: Store, paths: list[str]) -> dict[str, str]:
+        """Short-lived links to profile photos. Callers must already have checked access."""
+        paths = sorted({p for p in paths if p})
+        if not paths:
+            return {}
+        try:
+            signed = await store.request(
+                "POST",
+                "/storage/v1/object/sign/avatars",
+                admin=True,
+                json={"expiresIn": AVATAR_URL_SECONDS, "paths": paths},
+            )
+        except HTTPException:
+            return {}  # Photos are decoration: fall back to initials rather than fail the page.
+        return {
+            item["path"]: f"{settings.supabase_url}/storage/v1{item['signedURL']}"
+            for item in signed or []
+            if item.get("signedURL") and not item.get("error")
+        }
+
+    async def public_profile(store: Store, row: dict) -> dict:
+        profile = {k: v for k, v in row.items() if k not in {"supabase_user_id", "avatar_path"}}
+        urls = await sign_avatars(store, [row.get("avatar_path")])
+        profile["avatar_url"] = urls.get(row.get("avatar_path") or "")
+        return profile
+
     @app.get("/me", tags=["Accounts"])
     async def me(user: User, store: Database):
         rows = await store.rows("profiles", admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        profile = {key: value for key, value in rows[0].items() if key != "supabase_user_id"}
-        return {**profile, "email": user.email}
+        return {**await public_profile(store, rows[0]), "email": user.email}
+
+    @app.post("/me/avatar", tags=["Accounts"])
+    async def upload_avatar(user: User, store: Database, file: Annotated[UploadFile, File()]):
+        """Set your profile photo (JPEG, PNG or WebP, up to 2 MB). Visible to people in your groups."""
+        try:
+            image = await file.read(MAX_AVATAR_BYTES + 1)
+        finally:
+            await file.close()
+        if not image or len(image) > MAX_AVATAR_BYTES:
+            raise HTTPException(413, "Choose an image no larger than 2 MB")
+        kind = image_kind(image)  # Trust the bytes, not the declared type.
+        if not kind:
+            raise HTTPException(415, "Choose a JPEG, PNG or WebP image")
+        mime, ext = kind
+        old = await store.rows("profiles", admin=True, id=f"eq.{user.id}", select="avatar_path")
+        path = f"{user.id}/{uuid4()}.{ext}"
+        await store.request(
+            "POST",
+            f"/storage/v1/object/avatars/{path}",
+            admin=True,
+            content=image,
+            headers={"Content-Type": mime, "x-upsert": "false"},
+        )
+        rows = await store.write(
+            "PATCH", "profiles", {"avatar_path": path}, admin=True, id=f"eq.{user.id}"
+        )
+        if not rows:
+            raise HTTPException(404, "Profile not found")
+        await remove_avatar_object(store, old[0].get("avatar_path") if old else None)
+        return {**await public_profile(store, rows[0]), "email": user.email}
+
+    @app.delete("/me/avatar", tags=["Accounts"])
+    async def delete_avatar(user: User, store: Database):
+        old = await store.rows("profiles", admin=True, id=f"eq.{user.id}", select="avatar_path")
+        rows = await store.write(
+            "PATCH", "profiles", {"avatar_path": None}, admin=True, id=f"eq.{user.id}"
+        )
+        if not rows:
+            raise HTTPException(404, "Profile not found")
+        await remove_avatar_object(store, old[0].get("avatar_path") if old else None)
+        return {**await public_profile(store, rows[0]), "email": user.email}
+
+    async def remove_avatar_object(store: Store, path: str | None) -> None:
+        if not path:
+            return
+        try:
+            await store.request(
+                "DELETE", "/storage/v1/object/avatars", admin=True, json={"prefixes": [path]}
+            )
+        except HTTPException:
+            pass  # An orphaned old photo is harmless; the profile already points at the new one.
 
     @app.patch("/me", tags=["Accounts"])
     async def update_me(data: ProfileUpdate, user: User, store: Database):
@@ -230,7 +321,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         rows = await store.write("PATCH", "profiles", payload, admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        return {key: value for key, value in rows[0].items() if key != "supabase_user_id"}
+        return await public_profile(store, rows[0])
 
     @app.get("/me/stats", tags=["Accounts"])
     async def account_stats(user: User, store: Database):
@@ -308,12 +399,31 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
     @app.get("/groups/{group_id}/members", tags=["Groups"])
     async def members(group_id: UUID, user: User, store: Database):
         await membership(store, user, group_id)
-        return await store.rows(
-            "memberships",
-            admin=True,
-            group_id=f"eq.{group_id}",
-            select="user_id,role,profiles(display_name,city,lat,lng,timezone,location_updated_at)",
+        fields = "display_name,city,lat,lng,timezone,location_updated_at"
+        try:
+            rows = await store.rows(
+                "memberships",
+                admin=True,
+                group_id=f"eq.{group_id}",
+                select=f"user_id,role,profiles({fields},avatar_path)",
+            )
+        except HTTPException:
+            # Before migration 0006 there is no avatar_path column: list members without photos.
+            rows = await store.rows(
+                "memberships",
+                admin=True,
+                group_id=f"eq.{group_id}",
+                select=f"user_id,role,profiles({fields})",
+            )
+        # Membership is checked above, so everyone listed shares a group with the caller.
+        urls = await sign_avatars(
+            store, [(r.get("profiles") or {}).get("avatar_path") for r in rows]
         )
+        for r in rows:
+            profile = r.get("profiles")
+            if profile is not None:
+                profile["avatar_url"] = urls.get(profile.pop("avatar_path", None) or "")
+        return rows
 
     @app.get("/groups/{group_id}/periods/current", tags=["Reflections"])
     async def current_period(group_id: UUID, user: User, store: Database):

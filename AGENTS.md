@@ -149,6 +149,7 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 |---|---|---|
 | `POST /email/test` (multipart) | localhost only, `ENABLE_EMAIL_TESTING=true` | Manual frontend Resend test with an optional PDF; disabled by default and independent of publishing |
 | `GET /me`, `PATCH /me` | user | profile: display_name, location_mode, city, lat, lng, timezone |
+| `POST /me/avatar` (multipart), `DELETE /me/avatar` | user | profile photo (JPEG/PNG/WebP ≤ 2 MB, private `avatars` bucket); `/me` and members return a signed `avatar_url` |
 | `GET /groups`, `POST /groups` | user | list my groups / create (caller becomes organizer, period 1 opens) |
 | `POST /groups/join` `{code}` | user | join by code |
 | `GET /groups/{id}` | member | group, members (name, city, lat/lng, timezone, notes this week), current period |
@@ -210,6 +211,11 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   explicit group refresh bypasses it. Unfinished editions and signed audio URLs are not cached.
   Cache keys include the access token, keeping account data separate. See `frontend/src/lib/api.ts`.
 
+
+- **Profile photos:** `0006_profile_photos.sql` adds `profiles.avatar_path` and a private
+  `avatars` bucket. **Not applied to the live project yet**; apply it before deploying the backend
+  that serves `/me/avatar`. The app crops photos to a 320px square JPEG (which drops EXIF/GPS) and
+  only group members get the 6-hour signed links.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

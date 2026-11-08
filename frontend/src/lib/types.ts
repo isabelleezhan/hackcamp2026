@@ -66,6 +66,8 @@ export type Profile = {
   lng: number | null
   timezone: string | null
   location_updated_at: string | null
+  /** Short-lived signed link to the profile photo, or null for initials. */
+  avatar_url?: string | null
 }
 
 export type GroupSummary = Omit<Group, 'invitation_url'>
@@ -73,7 +75,7 @@ export type GroupSummary = Omit<Group, 'invitation_url'>
 export type Member = {
   user_id: string
   role: 'organizer' | 'member'
-  profiles: Pick<Profile, 'display_name' | 'city' | 'lat' | 'lng' | 'timezone' | 'location_updated_at'> | null
+  profiles: Pick<Profile, 'display_name' | 'city' | 'lat' | 'lng' | 'timezone' | 'location_updated_at' | 'avatar_url'> | null
 }
 
 export type Period = {

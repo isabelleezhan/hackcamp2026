@@ -25,11 +25,13 @@ export function EditionState({
   group,
   onRetry,
   retrying,
+  photos,
 }: {
   edition: Edition
   group: Pick<Group, 'name' | 'timezone'> & { membership?: Pick<Group['membership'], 'role'> }
   onRetry?: () => void
   retrying?: boolean
+  photos?: Record<string, string | null>
 }) {
   if (edition.status === 'published' && edition.content) {
     return (
@@ -37,6 +39,7 @@ export function EditionState({
         edition={edition as Edition & { content: Newspaper }}
         groupName={group.name}
         timeZone={group.timezone}
+        photos={photos}
       />
     )
   }
@@ -91,7 +94,8 @@ export function ViewSwitch({ view, onChange }: { view: EditionViewMode; onChange
 /** One issue inside the group sheet: keeps checking while it's being written, App/Email switch,
  *  and Retry for organizers if it failed. */
 export function EditionScreen({ editionId, back }: { editionId: string; back?: ReactNode }) {
-  const { group, refresh: refreshGroup } = useGroup()
+  const { group, people, refresh: refreshGroup } = useGroup()
+  const photos = Object.fromEntries(people.map((p) => [p.id, p.photo]))
   const groupId = group.id
   const [edition, setEdition] = useState<Edition | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -148,7 +152,7 @@ export function EditionScreen({ editionId, back }: { editionId: string; back?: R
       ) : !edition ? (
         <GlassNotice title="Loading this week's paper…" />
       ) : (
-        <EditionState edition={edition} group={group} onRetry={retry} retrying={retrying} />
+        <EditionState edition={edition} group={group} onRetry={retry} retrying={retrying} photos={photos} />
       )}
     </div>
   )

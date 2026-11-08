@@ -8,6 +8,8 @@ type Props = {
   edition: Edition & { content: Newspaper }
   groupName: string
   timeZone?: string
+  /** Profile photos by user id, for the bylines. */
+  photos?: Record<string, string | null>
 }
 
 function issueDate(iso: string | null, timeZone?: string) {
@@ -17,31 +19,24 @@ function issueDate(iso: string | null, timeZone?: string) {
   )
 }
 
-const card =
-  'rounded-[16px] border border-card-line bg-card px-[18px] pb-5 pt-[18px] text-card-ink shadow-[0_6px_18px_rgba(36,56,92,.06)]'
-
-function StoryCard({ story }: { story: MemberUpdate }) {
+function Byline({ story, photo }: { story: MemberUpdate; photo?: string | null }) {
   return (
-    <article className={`${card} grid gap-2`}>
-      <div className="flex items-center gap-2.5 text-[13px] text-card-muted">
-        <Avatar id={story.user_id} name={story.display_name} size="sm" />
-        <span>
-          <span className="font-semibold text-card-ink">{story.display_name}</span>
-          {story.dateline && <>, {story.dateline}</>}
-        </span>
-      </div>
-      <h3 className="font-reading text-[22px] font-bold leading-[1.2] text-balance">{smart(story.headline)}</h3>
-      <p className="font-reading text-[17px] leading-[1.6]">{smart(story.text)}</p>
-    </article>
+    <p className="flex items-center gap-2.5 text-[13px] text-card-muted">
+      <Avatar id={story.user_id} name={story.display_name} size="sm" src={photo} />
+      <span>
+        <span className="font-semibold text-card-ink">{story.display_name}</span>
+        {story.dateline && <>, {story.dateline}</>}
+      </span>
+    </p>
   )
 }
 
 function Briefs({ title, items }: { title: string; items: Story[] }) {
   if (!items.length) return null
   return (
-    <section className={card}>
-      <h3 className="mb-2 text-[12.5px] font-semibold text-card-muted">{title}</h3>
-      <ul className="grid list-disc gap-1.5 pl-[18px] font-reading text-[15.5px] leading-[1.5]">
+    <section className="grid gap-2 border-t border-card-line pt-6">
+      <h3 className="font-reading text-[20px] font-bold">{title}</h3>
+      <ul className="grid list-disc gap-2 pl-[18px] font-reading text-[16.5px] leading-[1.6] marker:text-accent">
         {items.map((item) => (
           <li key={item.headline + item.text}>
             <span className="font-semibold">{smart(item.headline)}.</span> {smart(item.text)}
@@ -68,7 +63,7 @@ function IssueImages({ groupId, editionId }: { groupId: string; editionId: strin
 
   if (!images.length) return null
   return (
-    <section className="mt-1 border-t border-card-line pt-3" aria-labelledby="issue-photos-heading">
+    <section className="mt-1" aria-labelledby="issue-photos-heading">
       <h3 id="issue-photos-heading" className="mb-3 text-[12.5px] font-semibold text-card-muted">
         Photos from the week
       </h3>
@@ -88,40 +83,57 @@ function IssueImages({ groupId, editionId }: { groupId: string; editionId: strin
   )
 }
 
-/** This week's paper, in the globe prototype's style. Renders validated JSON only, never HTML. */
-export default function EditionView({ edition, groupName, timeZone }: Props) {
+/**
+ * One issue as a single newsletter page: masthead, lead, photos from the week, everyone's stories
+ * one after another, then the briefs. Renders validated JSON only, never HTML.
+ */
+export default function EditionView({ edition, groupName, timeZone, photos = {} }: Props) {
   const paper = edition.content
   const notes = new Set(paper.member_updates.flatMap((u) => u.source_reflection_ids)).size
   const people = paper.member_updates.length
 
   return (
-    <article lang="en" className="grid gap-[14px]">
-      <header>
-        <h1 className="text-[28px] font-extrabold tracking-[-0.02em]">Issue {edition.issue_number}</h1>
-        <p className="mt-0.5 text-[14px] text-glass-muted">
-          {issueDate(edition.published_at ?? edition.created_at, timeZone)}. {people}{' '}
-          {people === 1 ? 'person' : 'people'} wrote in.
-        </p>
+    <article
+      lang="en"
+      className="grid gap-6 rounded-[18px] border border-card-line bg-card px-5 pb-6 pt-5 text-card-ink shadow-[0_6px_18px_rgba(36,56,92,.06)] sm:px-7"
+    >
+      <header className="grid gap-3">
+        <div className="grid gap-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <b className="font-reading text-[17px]">{groupName}</b>
+            <span className="text-[12.5px] text-card-muted">
+              Issue {edition.issue_number}, {issueDate(edition.published_at ?? edition.created_at, timeZone)}
+            </span>
+          </div>
+          {/* Airmail stripe, like the border of an envelope. */}
+          <div
+            aria-hidden="true"
+            className="h-[6px] rounded-full"
+            style={{
+              background:
+                'repeating-linear-gradient(-45deg, var(--color-accent) 0 10px, transparent 10px 15px, var(--color-record) 15px 25px, transparent 25px 30px)',
+            }}
+          />
+        </div>
+        <h1 className="font-reading text-[30px] font-bold leading-[1.12] tracking-[-0.01em] text-balance">
+          {smart(paper.headline)}
+        </h1>
+        <p className="font-reading text-[18px] italic leading-[1.6] text-card-ink/80">{smart(paper.introduction)}</p>
+        <IssueImages groupId={edition.group_id} editionId={edition.id} />
       </header>
 
-      <section className={`${card} grid gap-3`}>
-        <div className="flex justify-between gap-2 border-b border-card-line pb-2 text-[12px] text-card-muted">
-          <b className="font-reading text-[14px] text-card-ink">{groupName}</b>
-          <span>Issue {edition.issue_number}</span>
-        </div>
-        <h2 className="font-reading text-[26px] font-bold leading-[1.15] text-balance">{smart(paper.headline)}</h2>
-        <p className="font-reading text-[17px] leading-[1.6] text-card-ink/85">{smart(paper.introduction)}</p>
-        <IssueImages groupId={edition.group_id} editionId={edition.id} />
-      </section>
-
       {paper.member_updates.map((story) => (
-        <StoryCard key={story.user_id} story={story} />
+        <section key={story.user_id} className="grid gap-2.5 border-t border-card-line pt-6">
+          <Byline story={story} photo={photos[story.user_id]} />
+          <h2 className="font-reading text-[23px] font-bold leading-[1.2] text-balance">{smart(story.headline)}</h2>
+          <p className="font-reading text-[17px] leading-[1.7]">{smart(story.text)}</p>
+        </section>
       ))}
 
       <Briefs title="Little victories" items={paper.little_victories} />
       <Briefs title="Looking ahead" items={paper.looking_ahead} />
 
-      <p className="px-1 pt-1 text-[13px] text-glass-muted">
+      <p className="border-t border-card-line pt-4 text-[13px] text-card-muted">
         Written from {notes} {notes === 1 ? 'note' : 'notes'} by {people} {people === 1 ? 'person' : 'people'}. Every
         story comes from their own words.
       </p>

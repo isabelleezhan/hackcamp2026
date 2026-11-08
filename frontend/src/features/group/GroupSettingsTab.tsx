@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useAuth } from '../../auth/context'
 import Avatar from '../../components/Avatar'
@@ -6,6 +6,111 @@ import { card, secondary } from '../../components/ui'
 import { api } from '../../lib/api'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
+
+const PHOTO_PX = 320
+
+/** Crop to a centred square and re-encode as JPEG. Re-encoding also drops EXIF data such as GPS. */
+async function squarePhoto(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const side = Math.min(bitmap.width, bitmap.height)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = Math.min(PHOTO_PX, side)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('no canvas')
+  ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', 0.86),
+  )
+}
+
+/** Your photo: shown to people in your groups next to your name, on the globe and in People. */
+function ProfilePhoto() {
+  const { profile, refresh: refreshProfile } = useProfile()
+  const { refresh: refreshGroup } = useGroup()
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!profile) return null
+
+  async function save(action: () => Promise<unknown>) {
+    setBusy(true)
+    setError(null)
+    try {
+      await action()
+      await Promise.all([refreshProfile(), refreshGroup()])
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Couldn't update your photo. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function choose(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    await save(async () => {
+      let photo: Blob
+      try {
+        photo = await squarePhoto(file)
+      } catch {
+        throw new Error("That image couldn't be opened. Try a JPEG or PNG.")
+      }
+      const form = new FormData()
+      form.append('file', photo, 'photo.jpg')
+      await api('/me/avatar', { method: 'POST', body: form })
+    })
+  }
+
+  return (
+    <div className={row}>
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        disabled={busy}
+        aria-label={profile.avatar_url ? 'Change your photo' : 'Add a photo'}
+        className="group/photo relative shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text disabled:opacity-60"
+      >
+        <Avatar id={profile.id} name={profile.display_name ?? 'Me'} size="lg" src={profile.avatar_url} />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-0 right-0 grid size-6 place-items-center rounded-full border-2 border-white bg-accent text-white shadow"
+        >
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+            <circle cx="12" cy="13" r="3.5" />
+          </svg>
+        </span>
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">{busy ? 'Saving your photo…' : 'Profile photo'}</p>
+        <p className="text-[13px] text-glass-muted">Only people in your newsletters can see it.</p>
+        <div className="mt-1.5 flex gap-3 text-[14px] font-semibold">
+          <button type="button" disabled={busy} onClick={() => input.current?.click()} className="text-accent-text disabled:opacity-50">
+            {profile.avatar_url ? 'Change' : 'Add a photo'}
+          </button>
+          {profile.avatar_url && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save(() => api('/me/avatar', { method: 'DELETE' }))}
+              className="text-glass-muted hover:text-alert disabled:opacity-50"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="mt-1 text-[13px] text-alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <input ref={input} type="file" accept="image/*" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(e) => void choose(e)} />
+    </div>
+  )
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -75,12 +180,7 @@ export default function GroupSettingsTab() {
 
   return (
     <div className="grid gap-5 pb-2">
-      <div className="flex items-center justify-between gap-2">
-        <Link to=".." relative="path" className="text-[15px] font-semibold text-accent-text">
-          ‹ Weekly news
-        </Link>
-      </div>
-      <h2 className="-mt-2 text-[22px] font-extrabold tracking-[-0.01em]">Settings</h2>
+      <h2 className="text-[22px] font-extrabold tracking-[-0.01em]">Settings</h2>
 
       {params.get('new') && (
         <p role="status" className="rounded-[14px] bg-accent-soft px-4 py-3 text-[15px] font-semibold text-accent-text">
@@ -160,7 +260,7 @@ export default function GroupSettingsTab() {
         <ul>
           {people.map((p) => (
             <li key={p.id} className={row}>
-              <Avatar id={p.id} name={p.id === meId ? 'Me' : p.name} size="sm" />
+              <Avatar id={p.id} name={p.id === meId ? 'Me' : p.name} size="sm" src={p.photo} />
               <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
               <span className="truncate text-[13px] text-glass-muted">
                 {p.role === 'organizer' ? 'Organizer' : (p.city ?? '')}
@@ -171,8 +271,8 @@ export default function GroupSettingsTab() {
       </Section>
 
       <Section title="You">
+        <ProfilePhoto />
         <div className={row}>
-          {profile && <Avatar id={profile.id} name={profile.display_name ?? 'Me'} size="sm" />}
           <span className="min-w-0 flex-1">
             <span className="block truncate font-semibold">{profile?.display_name ?? 'Your name'}</span>
             <span className="block truncate text-[13px] text-glass-muted">

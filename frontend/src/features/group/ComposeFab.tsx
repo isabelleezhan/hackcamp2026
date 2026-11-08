@@ -30,7 +30,7 @@ export function ComposeRedirect() {
  * Bottom-right button. It fans out to the left into "Transcribe" (microphone) and "Write note"
  * (pencil); either opens this week's notes in a frosted panel (?compose=voice|write).
  */
-export default function ComposeFab({ narrow }: { narrow: boolean }) {
+export default function ComposeFab({ narrow, lift = 0 }: { narrow: boolean; /** px to sit above a collapsed bottom sheet */ lift?: number }) {
   const [params, setParams] = useSearchParams()
   const compose = params.get('compose')
   const mode: Mode | null = compose === 'voice' || compose === 'write' ? compose : null
@@ -140,7 +140,8 @@ export default function ComposeFab({ narrow }: { narrow: boolean }) {
       )}
 
       <div
-        className={`absolute bottom-[max(16px,env(safe-area-inset-bottom,0px))] right-[max(14px,env(safe-area-inset-right,0px))] z-40 flex flex-row-reverse items-center gap-2.5`}
+        className="absolute bottom-[max(16px,env(safe-area-inset-bottom,0px))] right-[max(14px,env(safe-area-inset-right,0px))] z-40 flex flex-row-reverse items-center gap-2.5 transition-[translate] duration-300 motion-reduce:transition-none"
+        style={{ translate: `0 ${-lift}px` }}
       >
         <button
           ref={fab}

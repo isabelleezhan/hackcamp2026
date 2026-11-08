@@ -140,6 +140,16 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
         b.style.background = `linear-gradient(160deg, ${from}, ${to})`
         b.style.zIndex = String(members.length - i)
         b.textContent = person.id === meId ? 'Me' : initialOf(person.name)
+        if (person.photo) {
+          // Photo over the initials; if it fails to load, the initials show through.
+          const img = document.createElement('img')
+          img.src = person.photo
+          img.alt = ''
+          img.decoding = 'async'
+          img.draggable = false
+          img.onerror = () => img.remove()
+          b.append(img)
+        }
         b.setAttribute('aria-label', `Open ${person.name}'s page`)
         b.title = `${person.name}, ${person.city ?? ''} ${localTime(person.tz)}`.trim()
         b.onclick = (e) => {

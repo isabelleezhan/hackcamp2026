@@ -11,6 +11,8 @@ export type Person = {
   lng: number | null
   tz: string | null
   notes: number
+  /** Profile photo link, or null to show initials. */
+  photo: string | null
 }
 
 export type GroupState = {

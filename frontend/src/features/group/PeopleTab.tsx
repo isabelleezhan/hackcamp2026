@@ -41,7 +41,7 @@ export default function PeopleTab() {
               to={`/groups/${group.id}/people/${p.id}`}
               className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 hover:bg-glass-row focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text"
             >
-              <Avatar id={p.id} name={p.id === meId ? 'Me' : p.name} />
+              <Avatar id={p.id} name={p.id === meId ? 'Me' : p.name} src={p.photo} />
               <span className="min-w-0">
                 <span className="block truncate font-bold">
                   {p.name}
@@ -93,7 +93,7 @@ export function PersonView() {
         ‹ People
       </Link>
       <div className="flex items-center gap-3.5">
-        <Avatar id={person.id} name={isMe ? 'Me' : person.name} size="lg" />
+        <Avatar id={person.id} name={isMe ? 'Me' : person.name} size="lg" src={person.photo} />
         <div className="min-w-0">
           <h2 className="truncate text-[24px] font-extrabold tracking-[-0.01em]">{person.name}</h2>
           <p className="text-[14px] text-glass-muted">
