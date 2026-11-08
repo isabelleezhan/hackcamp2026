@@ -77,6 +77,15 @@ export type Period = {
 
 export type NoteCount = { user_id: string; notes: number; audio_seconds: number }
 
+export type ReflectionImage = {
+  id: string
+  reflection_id: string
+  storage_path: string
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+  caption: string
+  created_at: string
+}
+
 /** A note ("reflection" in the API). Many per person per week. */
 export type Reflection = {
   id: string
@@ -89,6 +98,8 @@ export type Reflection = {
   lat: number | null
   lng: number | null
   updated_at: string
+  /** Embedded on reflection-list responses; create/update responses may omit the relationship. */
+  reflection_images?: ReflectionImage[]
 }
 
 export type AudioResult = {

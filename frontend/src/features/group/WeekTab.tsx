@@ -4,7 +4,7 @@ import { card, primary, secondary, subtitle } from '../../components/ui'
 import { api, ApiError } from '../../lib/api'
 import { approximateLocation } from '../../lib/location'
 import { deadlineLabel, shortStamp, timeUntil } from '../../lib/time'
-import type { GroupSummary, Period, PublishResult, Reflection } from '../../lib/types'
+import type { GroupSummary, Period, PublishResult, Reflection, ReflectionImage } from '../../lib/types'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
 import NoteComposer, { type NoteInput } from './NoteComposer'
@@ -132,18 +132,47 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
           locationFallback = true
         }
       }
-      const { also, ...note } = data
+      const { also, images, ...note } = data
+      const noteUrl = editing ? `/groups/${group.id}/reflections/${editing.id}` : listUrl
+      const noteMethod = editing ? 'PUT' : 'POST'
+      const payload = { ...note, ...location, ai_consent: true }
       const result = await api<Reflection>(
-        editing ? `/groups/${group.id}/reflections/${editing.id}` : listUrl,
+        noteUrl,
         {
-          method: editing ? 'PUT' : 'POST',
-          body: JSON.stringify({ ...note, ...location, status: 'submitted', ai_consent: true }),
+          method: noteMethod,
+          // Image rows may only change while their note is a draft.
+          body: JSON.stringify({ ...payload, status: images.length ? 'draft' : 'submitted' }),
         },
       )
+      let imageUploadError: string | null = null
+      let uploaded: ReflectionImage[] = []
+      let saved = result
+      if (images.length) {
+        const form = new FormData()
+        images.forEach((image) => form.append('files', image))
+        try {
+          uploaded = await api<ReflectionImage[]>(
+            `/groups/${group.id}/reflections/${result.id}/images`,
+            { method: 'POST', body: form },
+          )
+        } catch (error) {
+          imageUploadError =
+            error instanceof ApiError
+              ? `Image upload failed (${error.status}): ${error.message}`
+              : `Image upload failed: ${explain(error)}`
+        }
+        // Whether image upload succeeded or failed, leave the text as a submitted note.
+        saved = await api<Reflection>(`/groups/${group.id}/reflections/${result.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...payload, status: 'submitted' }),
+        })
+        if (!imageUploadError)
+          saved = { ...saved, reflection_images: [...(result.reflection_images ?? []), ...uploaded] }
+      }
       // Text copies for the other newsletters picked. Audio stays with this group.
       const copies = editing ? [] : await sendCopies(also, note.body, location)
       setNotes((previous) =>
-        editing ? previous.map((note) => (note.id === result.id ? result : note)) : [...previous, result],
+        editing ? previous.map((note) => (note.id === saved.id ? saved : note)) : [...previous, saved],
       )
       setEditing(null)
       const sent = copies.filter((c) => c.ok).map((c) => c.name)
@@ -154,12 +183,15 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
             ? 'Note saved using your last known city. Your current location was unavailable.'
             : 'Note saved for this week.',
           sent.length ? `Also sent to ${listNames(sent)}.` : '',
+          imageUploadError ? 'The note was saved, but its images could not be uploaded.' : '',
         ]
           .filter(Boolean)
           .join(' '),
       )
       if (failed.length)
         setActionError(`Couldn't send it to ${listNames(failed)}. Open that newsletter and add it there.`)
+      else if (imageUploadError)
+        setActionError(`${imageUploadError} Your text is safe; edit the saved note to try again.`)
       void refresh()
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && /closed/i.test(error.message))
@@ -273,6 +305,9 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
                   {note.status === 'draft' ? ' | Draft (not included in the paper)' : ' | Saved'}
                 </p>
                 <p className="whitespace-pre-wrap break-words text-[15px]">{note.body || 'Empty draft'}</p>
+                {(note.reflection_images?.length ?? 0) > 0 && (
+                  <NoteImages groupId={group.id} reflectionId={note.id} images={note.reflection_images ?? []} />
+                )}
                 {!closed && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
@@ -398,5 +433,47 @@ function WeekContent({ period, mode }: { period: Period; mode?: 'voice' | 'write
         </section>
       )}
     </div>
+  )
+}
+
+function NoteImages({
+  groupId,
+  reflectionId,
+  images,
+}: {
+  groupId: string
+  reflectionId: string
+  images: ReflectionImage[]
+}) {
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let live = true
+    Promise.all(
+      images.map(async (image) => {
+        const result = await api<{ url: string }>(
+          `/groups/${groupId}/reflections/${reflectionId}/images/${image.id}/url`,
+          { cache: 'no-store' },
+        )
+        return [image.id, result.url] as const
+      }),
+    )
+      .then((entries) => live && setUrls(Object.fromEntries(entries)))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [groupId, reflectionId, images])
+  return (
+    <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="Note images">
+      {images.map((image) => (
+        <li key={image.id} className="aspect-square overflow-hidden rounded-xl border border-card-line bg-chip">
+          {urls[image.id] ? (
+            <img src={urls[image.id]} alt={image.caption || ''} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-[11px] text-glass-muted">Loading…</div>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }

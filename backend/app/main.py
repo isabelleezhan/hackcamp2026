@@ -500,7 +500,8 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
 
         created = []
         for content, mime, extension in prepared:
-            path = f"{group_id}/{user.id}/{reflection_id}/{uuid4()}.{extension}"
+            image_id = uuid4()
+            path = f"{group_id}/{user.id}/{reflection_id}/{image_id}.{extension}"
             await store.request(
                 "POST",
                 f"/storage/v1/object/reflection-images/{path}",
@@ -513,6 +514,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
                     "POST",
                     "reflection_images",
                     {
+                        "id": str(image_id),
                         "reflection_id": str(reflection_id),
                         "storage_path": path,
                         "mime_type": mime,

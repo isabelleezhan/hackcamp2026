@@ -200,8 +200,9 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   `/dev` and edition previews remain public.
 - **This week implemented:** typed note create/edit/delete, prompt chips, sharing/AI consent,
   location on new notes, recorder/upload with transcript review and manual fallback, weekly
-  limits, organizer publish confirmation, and backend note-image attachments (up to six private
-  JPEG/PNG/WebP/GIF files per note). Existing edition UI handles generation/retry.
+  limits, organizer publish confirmation, and note-image attachments (up to six private
+  JPEG/PNG/WebP/GIF files per note, with composer previews and saved-note thumbnails). Existing
+  edition UI handles generation/retry.
   Failed requests retain drafts; closed weeks cannot be edited. Empty publishes create no paper/email.
 - **Frontend navigation caching:** authenticated GET responses use a 30-second, memory-only
   cache (128 entries) with concurrent request deduplication. Writes and account changes clear it;

@@ -45,8 +45,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     return (res.status === 204 ? undefined : await res.json()) as T
   }
 
-  // Abortable requests belong to their caller; signed audio URLs must always be fresh.
-  if (read && token && !init.signal && init.cache !== 'no-store' && !path.includes('/audio')) {
+  // Abortable requests belong to their caller; signed media URLs must always be fresh.
+  if (
+    read &&
+    token &&
+    !init.signal &&
+    init.cache !== 'no-store' &&
+    !path.includes('/audio') &&
+    !path.includes('/images/')
+  ) {
     const key = JSON.stringify([path, [...headers.entries()]])
     return responses.load(key, request, init.cache === 'reload' || init.cache === 'no-cache')
   }

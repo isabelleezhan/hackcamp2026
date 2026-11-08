@@ -182,7 +182,8 @@ def test_uploads_multiple_images_and_creates_attachment_rows(settings):
             data = json.loads(request.content)
             assert data["reflection_id"] == note
             assert data["storage_path"].startswith(f"{GROUP}/{OWNER}/{note}/")
-            return httpx.Response(201, json=[{"id": str(len(uploaded)), **data}])
+            assert data["storage_path"].rsplit("/", 1)[1].split(".", 1)[0] == data["id"]
+            return httpx.Response(201, json=[data])
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     with make_client(settings, handler) as client:

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../lib/api'
 import type { GroupSummary } from '../../lib/types'
 import { useGroup } from './context'
@@ -10,6 +10,7 @@ export type NoteInput = {
   body: string
   audio_path: string | null
   audio_duration_seconds: number | null
+  images: File[]
   /** Other newsletters to send a text copy to (new notes only). */
   also: GroupSummary[]
 }
@@ -51,10 +52,13 @@ export default function NoteComposer({
   const [voiceVersion, setVoiceVersion] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [also, setAlso] = useState<string[]>([])
+  const [images, setImages] = useState<File[]>([])
+  const imageInput = useRef<HTMLInputElement>(null)
   const otherGroups = useOtherGroups(!note)
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null)
   const maxLength = audio ? 4000 : 2000
-  const dirty = note ? body !== note.body : Boolean(body || audio || voiceDraft)
+  const existingImageCount = note?.reflection_images?.length ?? 0
+  const dirty = note ? body !== note.body || images.length > 0 : Boolean(body || audio || voiceDraft || images.length)
   const locked = disabled || saving || voiceBusy
 
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function NoteComposer({
     setReviewed(false)
     setError(null)
     setVoiceMessage(null)
+    setImages([])
     setVoiceVersion((version) => version + 1)
     onCancel()
   }
@@ -86,6 +91,7 @@ export default function NoteComposer({
         body: body.trim(),
         audio_path: audio?.audio_path ?? null,
         audio_duration_seconds: audio?.audio_duration_seconds ?? null,
+        images,
         also: otherGroups.filter((g) => also.includes(g.id)),
       })
       setBody('')
@@ -93,12 +99,32 @@ export default function NoteComposer({
       setReviewed(false)
       setVoiceMessage(null)
       setAlso([])
+      setImages([])
       setVoiceVersion((version) => version + 1)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save your note. Your draft is still here.')
     } finally {
       setSaving(false)
     }
+  }
+
+  function chooseImages(event: ChangeEvent<HTMLInputElement>) {
+    const chosen = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!chosen.length) return
+    const available = 6 - existingImageCount - images.length
+    if (chosen.length > available) {
+      setError(available > 0 ? `You can add ${available} more image${available === 1 ? '' : 's'} to this note.` : 'A note can have at most 6 images.')
+      return
+    }
+    const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+    const invalid = chosen.find((file) => !allowed.has(file.type) || file.size > 10 * 1024 * 1024)
+    if (invalid) {
+      setError('Choose JPEG, PNG, WebP, or GIF images up to 10 MB each.')
+      return
+    }
+    setError(null)
+    setImages((current) => [...current, ...chosen])
   }
 
   return (
@@ -181,9 +207,37 @@ export default function NoteComposer({
                 setReviewed(false)
               }}
             />
-            <p id="weekly-note-count" className="mt-1 text-right text-[12px] text-glass-muted">
-              {body.length}/{maxLength} characters
-            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <input
+                ref={imageInput}
+                type="file"
+                className="sr-only"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                multiple
+                disabled={locked || existingImageCount + images.length >= 6}
+                onChange={chooseImages}
+              />
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-full border border-card-line bg-white px-3 py-2 text-[13px] font-semibold text-glass-text transition-colors hover:bg-chip disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={locked || existingImageCount + images.length >= 6}
+                onClick={() => imageInput.current?.click()}
+              >
+                <ImageIcon />
+                Add images
+                <span className="font-normal text-glass-muted">{existingImageCount + images.length}/6</span>
+              </button>
+              <p id="weekly-note-count" className="ml-auto text-right text-[12px] text-glass-muted">
+                {body.length}/{maxLength} characters
+              </p>
+            </div>
+            {images.length > 0 && (
+              <SelectedImages
+                images={images}
+                disabled={locked}
+                onRemove={(index) => setImages((current) => current.filter((_, item) => item !== index))}
+              />
+            )}
           </div>
           {audio && (
             <label className="flex items-start gap-2 text-[14px]">
@@ -230,6 +284,64 @@ export default function NoteComposer({
         </form>
       )}
     </section>
+  )
+}
+
+function ImageIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.5" cy="9" r="1.5" />
+      <path d="m4 17 4.5-4.5 3.5 3 2.5-2.5 5.5 5" />
+    </svg>
+  )
+}
+
+function SelectedImages({
+  images,
+  disabled,
+  onRemove,
+}: {
+  images: File[]
+  disabled: boolean
+  onRemove: (index: number) => void
+}) {
+  return (
+    <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="Selected images">
+      {images.map((file, index) => (
+        <SelectedImage
+          key={`${file.name}:${file.size}:${file.lastModified}`}
+          file={file}
+          disabled={disabled}
+          onRemove={() => onRemove(index)}
+        />
+      ))}
+    </ul>
+  )
+}
+
+function SelectedImage({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => setUrl(typeof reader.result === 'string' ? reader.result : ''))
+    reader.readAsDataURL(file)
+    return () => reader.abort()
+  }, [file])
+  return (
+    <li className="group relative aspect-square overflow-hidden rounded-xl border border-card-line bg-chip">
+      {url && <img src={url} alt="" className="h-full w-full object-cover" />}
+      <button
+        type="button"
+        aria-label={`Remove ${file.name}`}
+        title={`Remove ${file.name}`}
+        disabled={disabled}
+        onClick={onRemove}
+        className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/65 text-sm font-bold text-white shadow disabled:opacity-40"
+      >
+        ×
+      </button>
+    </li>
   )
 }
 
