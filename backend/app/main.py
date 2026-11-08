@@ -48,6 +48,14 @@ from app.services.geocode import ReverseGeocoder
 from app.store import Store
 
 EDITION_FIELDS = "id,group_id,period_id,issue_number,status,content,generation_error,generation_attempts,published_at,created_at"
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGES_PER_REFLECTION = 6
+IMAGE_TYPES = {
+    "image/jpeg": (b"\xff\xd8\xff", "jpg"),
+    "image/png": (b"\x89PNG\r\n\x1a\n", "png"),
+    "image/gif": (b"GIF8", "gif"),
+    "image/webp": (b"RIFF", "webp"),
+}
 
 
 class BodyTooLarge(Exception):
@@ -61,6 +69,12 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        # An image request may contain six independently limited files plus multipart overhead.
+        limit = (
+            MAX_IMAGES_PER_REFLECTION * MAX_IMAGE_BYTES + 1024 * 1024
+            if scope.get("path", "").endswith("/images")
+            else self.limit
+        )
         received = 0
         started = False
 
@@ -68,7 +82,7 @@ class BodyLimitMiddleware:
             nonlocal received
             message = await receive()
             received += len(message.get("body", b""))
-            if received > self.limit:
+            if received > limit:
                 raise BodyTooLarge
             return message
 
@@ -80,7 +94,7 @@ class BodyLimitMiddleware:
 
         try:
             length = dict(scope.get("headers", [])).get(b"content-length")
-            if length and int(length) > self.limit:
+            if length and int(length) > limit:
                 raise BodyTooLarge
             await self.app(scope, limited_receive, tracked_send)
         except BodyTooLarge:
@@ -124,6 +138,25 @@ def audio_object_path(group_id: UUID, path: str, owner_id: UUID | None = None) -
         except ValueError as exc:
             raise HTTPException(422, "Invalid audio reference") from exc
     return quote(path, safe="/")
+
+
+def validate_image(data: bytes, content_type: str) -> str:
+    """Validate an allowed raster format by bytes, not the client-provided filename."""
+    mime = content_type.split(";", 1)[0].strip().lower()
+    if not data:
+        raise HTTPException(422, "Image is empty")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "Each image is limited to 10 MB")
+    expected = IMAGE_TYPES.get(mime)
+    if expected is None:
+        raise HTTPException(422, "Images must be JPEG, PNG, WebP, or GIF")
+    signature, extension = expected
+    valid = data.startswith(signature)
+    if mime == "image/webp":
+        valid = len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+    if not valid:
+        raise HTTPException(422, "Image contents do not match its media type")
+    return extension
 
 
 def create_app(settings: Settings | None = None, transport=None, authenticator=None) -> FastAPI:
@@ -301,6 +334,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             group_id=f"eq.{group_id}",
             period_id=f"eq.{period_id}",
             user_id=f"eq.{user.id}",
+            select="*,reflection_images(*)",
             order="updated_at.asc",
         )
 
@@ -391,6 +425,168 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             id=f"eq.{reflection_id}",
             group_id=f"eq.{group_id}",
             user_id=f"eq.{user.id}",
+        )
+        return Response(status_code=204)
+
+    async def owned_reflection(
+        store: Store,
+        group_id: UUID,
+        reflection_id: UUID,
+        user: Identity,
+        *,
+        require_open: bool = False,
+    ) -> dict:
+        rows = await store.rows(
+            "reflections",
+            admin=True,
+            id=f"eq.{reflection_id}",
+            group_id=f"eq.{group_id}",
+            user_id=f"eq.{user.id}",
+            select="id,period_id",
+        )
+        if not rows:
+            raise HTTPException(404, "Note not found")
+        if not require_open:
+            return rows[0]
+        periods = await store.rows(
+            "issue_periods",
+            admin=True,
+            id=f"eq.{rows[0]['period_id']}",
+            select="closed_at,deadline_at",
+        )
+        if not periods:
+            raise HTTPException(404, "Issue period not found")
+        period = periods[0]
+        deadline = datetime.fromisoformat(period["deadline_at"].replace("Z", "+00:00"))
+        if period.get("closed_at") or deadline <= datetime.now(UTC):
+            raise HTTPException(409, "This issue period is closed; images cannot be changed")
+        return rows[0]
+
+    @app.post(
+        "/groups/{group_id}/reflections/{reflection_id}/images",
+        status_code=201,
+        tags=["Reflection images"],
+    )
+    async def upload_reflection_images(
+        group_id: UUID,
+        reflection_id: UUID,
+        user: User,
+        store: Database,
+        files: Annotated[list[UploadFile], File()],
+    ):
+        """Attach one to six private images to the caller's open note."""
+        await membership(store, user, group_id)
+        await owned_reflection(store, group_id, reflection_id, user, require_open=True)
+        if not files or len(files) > MAX_IMAGES_PER_REFLECTION:
+            raise HTTPException(422, "Upload between 1 and 6 images")
+        existing = await store.rows(
+            "reflection_images",
+            admin=True,
+            reflection_id=f"eq.{reflection_id}",
+            select="id",
+        )
+        if len(existing) + len(files) > MAX_IMAGES_PER_REFLECTION:
+            raise HTTPException(409, "A note can have at most 6 images")
+
+        prepared: list[tuple[bytes, str, str]] = []
+        for file in files:
+            try:
+                content = await file.read(MAX_IMAGE_BYTES + 1)
+            finally:
+                await file.close()
+            mime = (file.content_type or "").split(";", 1)[0].strip().lower()
+            extension = validate_image(content, mime)
+            prepared.append((content, mime, extension))
+
+        created = []
+        for content, mime, extension in prepared:
+            path = f"{group_id}/{user.id}/{reflection_id}/{uuid4()}.{extension}"
+            await store.request(
+                "POST",
+                f"/storage/v1/object/reflection-images/{path}",
+                admin=True,
+                content=content,
+                headers={"Content-Type": mime, "x-upsert": "false"},
+            )
+            try:
+                rows = await store.write(
+                    "POST",
+                    "reflection_images",
+                    {
+                        "reflection_id": str(reflection_id),
+                        "storage_path": path,
+                        "mime_type": mime,
+                        "caption": "",
+                    },
+                    admin=True,
+                )
+            except HTTPException:
+                await store.request(
+                    "DELETE", f"/storage/v1/object/reflection-images/{path}", admin=True
+                )
+                raise
+            created.append(rows[0])
+        return created
+
+    @app.get(
+        "/groups/{group_id}/reflections/{reflection_id}/images/{image_id}/url",
+        tags=["Reflection images"],
+    )
+    async def reflection_image_url(
+        group_id: UUID, reflection_id: UUID, image_id: UUID, user: User, store: Database
+    ):
+        await membership(store, user, group_id)
+        await owned_reflection(store, group_id, reflection_id, user)
+        images = await store.rows(
+            "reflection_images",
+            admin=True,
+            id=f"eq.{image_id}",
+            reflection_id=f"eq.{reflection_id}",
+            select="storage_path",
+        )
+        if not images:
+            raise HTTPException(404, "Image not found")
+        result = await store.request(
+            "POST",
+            f"/storage/v1/object/sign/reflection-images/{quote(images[0]['storage_path'], safe='/')}",
+            admin=True,
+            json={"expiresIn": 60},
+        )
+        return {
+            "url": f"{settings.supabase_url}/storage/v1{result['signedURL']}",
+            "expires_in": 60,
+        }
+
+    @app.delete(
+        "/groups/{group_id}/reflections/{reflection_id}/images/{image_id}",
+        status_code=204,
+        tags=["Reflection images"],
+    )
+    async def delete_reflection_image(
+        group_id: UUID, reflection_id: UUID, image_id: UUID, user: User, store: Database
+    ):
+        await membership(store, user, group_id)
+        await owned_reflection(store, group_id, reflection_id, user, require_open=True)
+        images = await store.rows(
+            "reflection_images",
+            admin=True,
+            id=f"eq.{image_id}",
+            reflection_id=f"eq.{reflection_id}",
+            select="id,storage_path",
+        )
+        if not images:
+            raise HTTPException(404, "Image not found")
+        await store.write(
+            "DELETE",
+            "reflection_images",
+            admin=True,
+            id=f"eq.{image_id}",
+            reflection_id=f"eq.{reflection_id}",
+        )
+        await store.request(
+            "DELETE",
+            f"/storage/v1/object/reflection-images/{quote(images[0]['storage_path'], safe='/')}",
+            admin=True,
         )
         return Response(status_code=204)
 

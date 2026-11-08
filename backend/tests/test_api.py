@@ -149,12 +149,123 @@ def test_reflection_list_is_scoped_to_current_user(settings):
         assert request.url.params["group_id"] == f"eq.{GROUP}"
         assert request.url.params["period_id"] == f"eq.{PERIOD}"
         assert request.url.params["user_id"] == f"eq.{OWNER}"
+        assert request.url.params["select"] == "*,reflection_images(*)"
         return httpx.Response(200, json=[])
 
     with make_client(settings, handler) as client:
         response = client.get(f"/groups/{GROUP}/periods/{PERIOD}/reflections", headers=AUTH)
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_uploads_multiple_images_and_creates_attachment_rows(settings):
+    note = "55555555-5555-4555-8555-555555555555"
+    uploaded = []
+
+    def handler(request):
+        import json
+
+        if request.url.path == "/rest/v1/reflections":
+            assert request.url.params["user_id"] == f"eq.{OWNER}"
+            return httpx.Response(200, json=[{"id": note, "period_id": PERIOD}])
+        if request.url.path == "/rest/v1/issue_periods":
+            return httpx.Response(
+                200, json=[{"closed_at": None, "deadline_at": "2099-11-08T02:00:00Z"}]
+            )
+        if request.url.path == "/rest/v1/reflection_images" and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if request.url.path.startswith("/storage/v1/object/reflection-images/"):
+            assert request.method == "POST"
+            uploaded.append(request.url.path)
+            return httpx.Response(200, json={"Key": "stored"})
+        if request.url.path == "/rest/v1/reflection_images" and request.method == "POST":
+            data = json.loads(request.content)
+            assert data["reflection_id"] == note
+            assert data["storage_path"].startswith(f"{GROUP}/{OWNER}/{note}/")
+            return httpx.Response(201, json=[{"id": str(len(uploaded)), **data}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    with make_client(settings, handler) as client:
+        result = client.post(
+            f"/groups/{GROUP}/reflections/{note}/images",
+            headers=AUTH,
+            files=[
+                ("files", ("first.jpg", b"\xff\xd8\xffphoto", "image/jpeg")),
+                ("files", ("second.png", b"\x89PNG\r\n\x1a\npixels", "image/png")),
+            ],
+        )
+    assert result.status_code == 201
+    assert len(result.json()) == 2
+    assert len(uploaded) == 2
+
+
+def test_rejects_image_when_note_already_has_six(settings):
+    note = "55555555-5555-4555-8555-555555555555"
+
+    def handler(request):
+        if request.url.path == "/rest/v1/reflections":
+            return httpx.Response(200, json=[{"id": note, "period_id": PERIOD}])
+        if request.url.path == "/rest/v1/issue_periods":
+            return httpx.Response(
+                200, json=[{"closed_at": None, "deadline_at": "2099-11-08T02:00:00Z"}]
+            )
+        if request.url.path == "/rest/v1/reflection_images":
+            return httpx.Response(200, json=[{"id": str(i)} for i in range(6)])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    with make_client(settings, handler) as client:
+        result = client.post(
+            f"/groups/{GROUP}/reflections/{note}/images",
+            headers=AUTH,
+            files={"files": ("extra.jpg", b"\xff\xd8\xffphoto", "image/jpeg")},
+        )
+    assert result.status_code == 409
+    assert "at most 6" in result.json()["detail"]
+
+
+def test_image_url_checks_note_ownership_and_signs_private_object(settings):
+    note = "55555555-5555-4555-8555-555555555555"
+    image = "66666666-6666-4666-8666-666666666666"
+    path = f"{GROUP}/{OWNER}/{note}/{image}.webp"
+
+    def handler(request):
+        if request.url.path == "/rest/v1/reflections":
+            return httpx.Response(200, json=[{"id": note, "period_id": PERIOD}])
+        if request.url.path == "/rest/v1/reflection_images":
+            assert request.url.params["reflection_id"] == f"eq.{note}"
+            return httpx.Response(200, json=[{"storage_path": path}])
+        if request.url.path.startswith("/storage/v1/object/sign/reflection-images/"):
+            return httpx.Response(200, json={"signedURL": "/object/sign/reflection-images/token"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    with make_client(settings, handler) as client:
+        result = client.get(f"/groups/{GROUP}/reflections/{note}/images/{image}/url", headers=AUTH)
+    assert result.status_code == 200
+    assert result.json()["expires_in"] == 60
+    assert result.json()["url"].endswith("/object/sign/reflection-images/token")
+
+
+def test_rejects_mismatched_image_contents_before_storage_write(settings):
+    note = "55555555-5555-4555-8555-555555555555"
+
+    def handler(request):
+        if request.url.path == "/rest/v1/reflections":
+            return httpx.Response(200, json=[{"id": note, "period_id": PERIOD}])
+        if request.url.path == "/rest/v1/issue_periods":
+            return httpx.Response(
+                200, json=[{"closed_at": None, "deadline_at": "2099-11-08T02:00:00Z"}]
+            )
+        if request.url.path == "/rest/v1/reflection_images":
+            return httpx.Response(200, json=[])
+        raise AssertionError("Invalid image must not reach storage")
+
+    with make_client(settings, handler) as client:
+        result = client.post(
+            f"/groups/{GROUP}/reflections/{note}/images",
+            headers=AUTH,
+            files={"files": ("fake.jpg", b"not an image", "image/jpeg")},
+        )
+    assert result.status_code == 422
 
 
 @pytest.mark.parametrize(

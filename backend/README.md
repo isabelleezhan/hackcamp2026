@@ -127,6 +127,9 @@ and SMTP in its dashboard. `GET /me`, `PATCH /me` and `GET /me/stats` keep their
 | POST /groups/{group_id}/periods/{period_id}/reflections | Add a note; many per week (limit 30 notes / 30 minutes of audio per person) |
 | PUT /groups/{group_id}/reflections/{reflection_id} | Replace one of the caller's notes while its week is open |
 | DELETE /groups/{group_id}/reflections/{reflection_id} | Delete one of the caller's notes while its week is open |
+| POST /groups/{group_id}/reflections/{reflection_id}/images | Upload 1–6 multipart `files` to the caller's open note (6 total per note) |
+| GET /groups/{group_id}/reflections/{reflection_id}/images/{image_id}/url | Get a private image URL that expires in 60 seconds |
+| DELETE /groups/{group_id}/reflections/{reflection_id}/images/{image_id} | Remove an image from the caller's open note |
 | POST /groups/{group_id}/audio | Validate/upload/transcribe multipart audio, returning reviewable text |
 | GET /groups/{group_id}/audio-url?path=... | Link to the caller's own voice clip, expiring in 60 seconds |
 | POST /groups/{group_id}/publish | Organizer closes explicit period and queues publishing |
@@ -144,6 +147,12 @@ Example final reflection body:
 ```
 
 Use `status: "draft"` while editing. Explain group sharing and AI processing before requesting consent. Audio uploads require multipart fields `file` and `ai_consent=true`. The API checks actual file format, audio-only streams, 10 MB maximum and 180-second duration before uploading or contacting Gemini. It returns an audio reference and `review_required` transcript; it never auto-submits speech. If transcription fails it returns `transcription_failed` with the saved audio reference so the person can enter text manually. Include that reference and duration when saving reviewed text; the API rechecks the stored audio rather than trusting client-supplied duration. Text-only submissions work without Gemini or FFmpeg. Typed notes are limited to 2,000 characters; voice transcripts to 4,000. `recorded_at` is set by the database. Going over a weekly limit returns 429.
+
+Reflection list responses include a `reflection_images` array with attachment metadata. Upload
+images after creating the note by sending repeated multipart fields named `files`; JPEG, PNG, WebP
+and GIF are accepted, each up to 10 MB, with at most six images total per note. Use the image URL
+endpoint when rendering an attachment because the `reflection-images` bucket is private. Uploads
+and deletes require the note to belong to the caller and its issue period to remain open.
 
 Publishing body: `{ "period_id": "the-current-period-UUID" }`. Keep that same ID when retrying a request. The response is `202` with an edition ID and `queued`, or null and `empty`. Poll the edition endpoint for pending/generating/published/failed. Database closure atomically freezes submitted text and contributor names, opens the next period, and prevents duplicate editions. A background task starts processing immediately, while the scheduled endpoint provides recovery after server restarts.
 
