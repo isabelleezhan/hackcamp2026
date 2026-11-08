@@ -156,7 +156,18 @@ and deletes require the note to belong to the caller and its issue period to rem
 
 Publishing body: `{ "period_id": "the-current-period-UUID" }`. Keep that same ID when retrying a request. The response is `202` with an edition ID and `queued`, or null and `empty`. Poll the edition endpoint for pending/generating/published/failed. Database closure atomically freezes submitted text and contributor names, opens the next period, and prevents duplicate editions. A background task starts processing immediately, while the scheduled endpoint provides recovery after server restarts.
 
-Newspaper generation defaults to `GEMINI_MODEL=gemini-3.5-flash-lite` for lower latency. It uses `GEMINI_GENERATION_TIMEOUT_SECONDS` (default 180, maximum 240) per Gemini request and LOW thinking for Gemini 3 models. This leaves room for one corrective validation attempt within the ten-minute generation lease. A timeout preserves the source snapshot and records an actionable failure. Retry the existing edition rather than closing another week. The retry endpoint returns `429` with `Retry-After` while backoff is active, or `409` if the edition is already published. Keep `/internal/tick` scheduled for recovery after development-server restarts.
+Newspaper generation defaults to `GEMINI_MODEL=gemini-3.5-flash-lite` for lower latency. It uses
+`GEMINI_GENERATION_TIMEOUT_SECONDS` (default 180, maximum 240) per Gemini request and LOW thinking
+for Gemini 3 models. Timeouts and network failures try the next configured fallback, as do supported
+provider errors. Source loading, all model fallbacks, and the corrective validation request share a
+480-second wall-clock budget, preserving room for DB completion within the ten-minute lease.
+Timeouts preserve the source snapshot and record an actionable failure. Retry the existing edition
+rather than closing another period. The retry endpoint returns `429` with `Retry-After` while backoff
+is active, or `409` if already published. This retry 429 is an application cooldown, not proof of
+Gemini quota exhaustion. Keep `/internal/tick` scheduled for recovery after server restarts.
+Warnings log the failed model, timeout/network exception class, elapsed seconds, and whether a
+fallback follows. With application INFO logging enabled, logs also show response timing, attempt
+number, and output/thinking token counts. No note text is included in these new diagnostics.
 
 Edition content is validated JSON: headline, introduction, attributed member_updates, little_victories and looking_ahead. Each story includes internal source_reflection_ids. Rendering must use a fixed template and plain escaped text, never arbitrary model HTML. The frontend supplies the group's masthead and the period's issue date. The validator requires every source contributor exactly once and rejects changed names or invented/misattributed source IDs. These checks do not prove the semantic truth of every generated sentence. Generation currently supports up to 100 contributors per edition and fails safely rather than omitting contributors if content cannot fit.
 

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -8,6 +9,7 @@ from app.providers import Gemini, Resend, email_payload
 from app.store import Store
 
 logger = logging.getLogger(__name__)
+GENERATION_BUDGET_SECONDS = 480  # Reserve two minutes of the ten-minute lease for DB completion.
 
 
 def now_iso() -> str:
@@ -30,14 +32,16 @@ class Jobs:
             return False
         claim = claims[0]
         try:
-            sources = await self.store.rows(
-                "edition_sources", admin=True, edition_id=f"eq.{edition_id}"
-            )
-            groups = await self.store.rows(
-                "groups", admin=True, id=f"eq.{claim['group_id']}", select="name"
-            )
-            group_name = groups[0].get("name") if groups else None
-            newspaper = await self.gemini.newspaper(sources, group_name=group_name)
+            # All model fallbacks and the corrective request share one wall-clock budget.
+            async with asyncio.timeout(GENERATION_BUDGET_SECONDS):
+                sources = await self.store.rows(
+                    "edition_sources", admin=True, edition_id=f"eq.{edition_id}"
+                )
+                groups = await self.store.rows(
+                    "groups", admin=True, id=f"eq.{claim['group_id']}", select="name"
+                )
+                group_name = groups[0].get("name") if groups else None
+                newspaper = await self.gemini.newspaper(sources, group_name=group_name)
             return await self.store.rpc(
                 "finish_generation",
                 {
@@ -52,7 +56,8 @@ class Jobs:
             logger.warning("Generation failed for edition %s: %s", edition_id, type(exc).__name__)
             error_message = (
                 "Gemini generation timed out. Your notes are saved; try again shortly."
-                if isinstance(exc, HTTPException) and exc.status_code == 504
+                if isinstance(exc, TimeoutError)
+                or (isinstance(exc, HTTPException) and exc.status_code == 504)
                 else "Generation failed validation or provider request; retry scheduled"
             )
             await self.store.write(

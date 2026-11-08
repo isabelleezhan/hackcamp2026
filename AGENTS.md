@@ -87,6 +87,11 @@ round avatar pins, frosted-glass sheet, record button).
   - on failure, retry once with the error, then mark the edition `failed` (notes are kept; the organizer can retry).
 - Repeated publish requests never create a second edition (`editions.period_id` is UNIQUE).
 - Gemini generation has a configurable 180-second request timeout (maximum 240) and uses LOW thinking for Gemini 3 models. Timeout failures preserve the snapshot. Retry the existing edition; active backoff returns HTTP 429 with `Retry-After`, and published editions reject regeneration with HTTP 409.
+  Request timeouts and network failures try the next configured fallback model. All fallbacks and
+  the corrective request share a 480-second wall-clock generation budget, below the ten-minute
+  lease. Logs record model/attempt, elapsed time, timeout class and output/thinking token counts,
+  without logging notes. A browser 429 on the edition retry route is the backend cooldown after
+  a failed job, and does not by itself mean Gemini returned a rate-limit error.
 
 ### 5. Delivery
 - n8n calls `POST /internal/editions/{id}/deliver`, which emails every **current member with

@@ -89,6 +89,39 @@ async def test_generation_timeout_has_safe_actionable_error(settings, caplog):
     assert "Private" not in error.value.detail + caplog.text
 
 
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError])
+async def test_newspaper_falls_back_after_timeout_or_network_failure(
+    settings, source, newspaper, caplog, failure
+):
+    settings.gemini_model = "primary-model"
+    settings.gemini_fallback_models = "backup-model"
+    models = []
+
+    def handle(request):
+        model = request.url.path.split("/")[-1].split(":")[0]
+        models.append(model)
+        if model == "primary-model":
+            raise failure("Private upstream detail", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": json.dumps(newspaper)}]},
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        content = await Gemini(settings, client).newspaper([source])
+    assert content.headline == newspaper["headline"]
+    assert models == ["primary-model", "backup-model"]
+    assert "elapsed=" in caplog.text
+    assert "Private" not in caplog.text
+
+
 async def test_incomplete_gemini_response_is_rejected(settings):
     def handle(request):
         return httpx.Response(

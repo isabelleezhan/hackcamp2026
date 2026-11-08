@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,7 +18,10 @@ async def test_unclaimed_generation_never_calls_model(settings):
 
 async def test_successful_generation_commits_with_lease(settings, source, newspaper):
     store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
-    store.rpc.side_effect = [[{"lease_token": LEASE, "generation_attempts": 1, "group_id": GROUP}], True]
+    store.rpc.side_effect = [
+        [{"lease_token": LEASE, "generation_attempts": 1, "group_id": GROUP}],
+        True,
+    ]
     store.rows.side_effect = [[source], [{"name": "The Sunday Club"}]]
     gemini.newspaper.return_value = Newspaper.model_validate(newspaper)
     assert await Jobs(settings, store, gemini, resend).generate(EDITION)
@@ -55,6 +59,26 @@ async def test_timeout_keeps_snapshot_and_records_retryable_failure(settings):
     assert "content" not in write.args[2]
     assert write.kwargs["lease_token"] == f"eq.{LEASE}"
     resend.send.assert_not_called()
+
+
+async def test_all_fallbacks_share_a_generation_budget(settings, source, monkeypatch):
+    monkeypatch.setattr("app.jobs.GENERATION_BUDGET_SECONDS", 0.01)
+    store, gemini, resend = AsyncMock(), AsyncMock(), AsyncMock()
+    store.rpc.return_value = [{"lease_token": LEASE, "generation_attempts": 1, "group_id": GROUP}]
+    store.rows.side_effect = [[source], [{"name": "Friends"}]]
+
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    gemini.newspaper.side_effect = stalled
+    assert not await Jobs(settings, store, gemini, resend).generate(EDITION)
+    assert store.rpc.await_count == 1  # No completion after timeout.
+    failure = store.write.call_args.args[2]
+    assert failure["status"] == "failed"
+    assert "timed out" in failure["generation_error"]
+    assert "notes are saved" in failure["generation_error"]
+    assert "content" not in failure
+    assert store.write.call_args.kwargs["lease_token"] == f"eq.{LEASE}"
 
 
 async def test_sent_or_ineligible_delivery_never_calls_provider(settings, newspaper):

@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from html import escape
+from time import monotonic
 from uuid import UUID
 
 import httpx
@@ -186,32 +187,60 @@ class Gemini:
         )
         try:
             for index, model in enumerate(models):
-                response = await self.client.post(
-                    "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{model}:generateContent",
-                    headers={"x-goog-api-key": key},
-                    json={
-                        "systemInstruction": {"parts": [{"text": rules}]},
-                        "contents": [{"role": "user", "parts": parts}],
-                        "generationConfig": {
-                            "responseMimeType": "application/json",
-                            "responseJsonSchema": schema,
-                            "temperature": 0.2,
-                            # Room for long issues: stories have no word limit.
-                            "maxOutputTokens": 65536,
-                            # A newspaper is a bounded summarization task. Gemini 3
-                            # otherwise spends much of the request budget thinking.
-                            **(
-                                {"thinkingConfig": {"thinkingLevel": "LOW"}}
-                                if model.startswith("gemini-3")
-                                else {}
-                            ),
+                started = monotonic()
+                log.info(
+                    "Gemini request started model=%s attempt=%s/%s", model, index + 1, len(models)
+                )
+                try:
+                    response = await self.client.post(
+                        "https://generativelanguage.googleapis.com/v1beta/models/"
+                        f"{model}:generateContent",
+                        headers={"x-goog-api-key": key},
+                        json={
+                            "systemInstruction": {"parts": [{"text": rules}]},
+                            "contents": [{"role": "user", "parts": parts}],
+                            "generationConfig": {
+                                "responseMimeType": "application/json",
+                                "responseJsonSchema": schema,
+                                "temperature": 0.2,
+                                # Room for long issues: stories have no word limit.
+                                "maxOutputTokens": 65536,
+                                **(
+                                    {"thinkingConfig": {"thinkingLevel": "LOW"}}
+                                    if model.startswith("gemini-3")
+                                    else {}
+                                ),
+                            },
                         },
-                    },
-                    timeout=self.settings.gemini_generation_timeout_seconds,
+                        timeout=self.settings.gemini_generation_timeout_seconds,
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    log.warning(
+                        "Gemini request failed model=%s kind=%s elapsed=%.2fs fallback=%s",
+                        model,
+                        type(exc).__name__,
+                        monotonic() - started,
+                        index < len(models) - 1,
+                    )
+                    if index < len(models) - 1:
+                        continue
+                    raise
+                log.info(
+                    "Gemini response model=%s status=%s elapsed=%.2fs",
+                    model,
+                    response.status_code,
+                    monotonic() - started,
                 )
                 if response.status_code == 200:
-                    candidate = response.json()["candidates"][0]
+                    body = response.json()
+                    usage = body.get("usageMetadata", {})
+                    log.info(
+                        "Gemini usage model=%s output_tokens=%s thinking_tokens=%s",
+                        model,
+                        usage.get("candidatesTokenCount"),
+                        usage.get("thoughtsTokenCount"),
+                    )
+                    candidate = body["candidates"][0]
                     if candidate.get("finishReason") != "STOP":
                         raise ValueError("Generation was incomplete or blocked")
                     text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
@@ -267,6 +296,7 @@ class Gemini:
             except ValueError as error:  # pydantic.ValidationError is a ValueError
                 if attempt == 1:
                     raise
+                log.warning("Gemini output failed validation; starting one corrective request")
                 problem = str(error).splitlines()[0][:300]
                 parts = [
                     {"text": request},
