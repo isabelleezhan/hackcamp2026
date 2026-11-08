@@ -1,6 +1,8 @@
 import { RequestCache } from './requestCache'
 
-const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+const API_URL = (
+  import.meta.env.VITE_API_URL?.trim() || (import.meta.env.PROD ? '/api' : 'http://localhost:8000')
+).replace(/\/$/, '')
 const responses = new RequestCache()
 
 export function clearApiCache() {

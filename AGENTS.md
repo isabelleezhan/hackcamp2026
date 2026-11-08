@@ -134,6 +134,12 @@ Give the model short ids (`N1`, `N2`, …) in the prompt, then map them back to 
 | Email | Resend | backend |
 | Hosting | Vercel (frontend), Render (backend), n8n Cloud | |
 
+Production frontend: `https://whydidmyfriendsleaveme.vercel.app`; backend:
+`https://whydidmyfriendsleavemee.onrender.com`. Vercel uses `frontend/` as its project root.
+Production builds use `VITE_API_URL=/api`; `frontend/vercel.json` proxies API requests to Render
+without CDN caching and supplies the SPA fallback. Local development still uses port 8000.
+Render's `FRONTEND_URL` and Supabase Auth redirects must use the production frontend origin.
+
 Key backend pieces: `auth.py` (Supabase Auth session verification), `main.py` (routes, `current_user`, membership
 checks), `store.py` (server-side Supabase REST), `jobs.py` (generation and delivery workers), `providers.py` (Gemini,
 Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/README.md](backend/README.md).

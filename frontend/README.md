@@ -1,5 +1,22 @@
 # Frontend
 
+Production is hosted at https://whydidmyfriendsleaveme.vercel.app with the backend at
+https://whydidmyfriendsleavemee.onrender.com. Set the Vercel project's **Root Directory** to
+`frontend`, framework to Vite, build command to `npm run build`, and output directory to `dist`.
+The tracked `.env.production` sets `VITE_API_URL=/api`; `vercel.json` forwards `/api/*` to
+Render and serves React routes through `index.html`. The browser uses its own origin, so API
+requests do not depend on Render's CORS allowlist. API proxy responses are never CDN-cached.
+
+In Vercel, remove any Production/Preview `VITE_API_URL` override, or set it to `/api`.
+Dashboard environment variables override `.env.production`. Keep `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` configured, then redeploy for build-time values and routing to take effect.
+Verify `https://whydidmyfriendsleaveme.vercel.app/api/health` returns backend JSON after deployment.
+Configure Supabase Auth's Site URL as `https://whydidmyfriendsleaveme.vercel.app` and allow
+`https://whydidmyfriendsleaveme.vercel.app/login` for confirmation and recovery redirects.
+On Render, set `FRONTEND_URL=https://whydidmyfriendsleaveme.vercel.app` for issue email links.
+For direct browser calls to Render instead of the proxy, its `CORS_ORIGINS` must include
+`https://whydidmyfriendsleaveme.vercel.app`.
+
 API GET responses are cached in memory for 30 seconds (up to 128 entries), with concurrent
 requests deduplicated. Cache keys include the access token and request headers; nothing is saved
 to browser storage. Writes and account changes clear the cache. Group refresh actions bypass it,
