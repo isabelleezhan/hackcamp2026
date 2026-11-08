@@ -10,8 +10,20 @@ npm install
 npm run dev                  # http://localhost:5173
 ```
 
-Without the `VITE_AUTH0_*` values the app runs signed-out. Group pages still need the backend
-running at `VITE_API_URL`; `/preview/edition` and `/dev` work without it.
+Opening a protected page while signed out redirects to `/login`. Without all three
+`VITE_AUTH0_*` values, that page displays configuration guidance and disables sign-in;
+the app does not call authenticated backend routes. Set the Auth0 SPA's domain and
+Client ID, plus an audience matching the backend's `AUTH0_AUDIENCE`, then restart Vite.
+The Client ID is public; never put an Auth0 client secret in a frontend environment file.
+In the Auth0 SPA's settings, add `http://localhost:5173` to Allowed Callback URLs,
+Allowed Logout URLs, and Allowed Web Origins. Save before testing Sign in. If Vite
+runs on another origin, register that exact origin as well.
+The audience must match the Auth0 API Identifier exactly, including `https://` if
+present. In that API's Application Access tab, grant this SPA User-Delegated Access.
+Auth0 callback errors are shown on the login page to help diagnose tenant settings.
+Group pages need the backend running at `VITE_API_URL`; `/preview/edition` and `/dev`
+remain available without sign-in. If the backend rejects a profile request with 401,
+the app prompts the user to sign in again instead of showing a server-connectivity error.
 
 ## Route map
 

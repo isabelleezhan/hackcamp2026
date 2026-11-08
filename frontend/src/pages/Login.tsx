@@ -4,11 +4,11 @@ import GlassPage, { pillButton } from '../components/GlassPage'
 
 /** Sign-in happens on Auth0's hosted page; this screen sends people there and back. */
 export default function Login() {
-  const { configured, loading, user, signIn, signUp } = useAuth()
+  const { configured, loading, user, error, signIn, signUp } = useAuth()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/'
 
-  if (!configured || user) return <Navigate to={from} replace />
+  if (configured && user) return <Navigate to={from} replace />
 
   return (
     <GlassPage>
@@ -23,7 +23,7 @@ export default function Login() {
           <button
             type="button"
             className={`${pillButton} bg-accent py-3 text-accent-ink`}
-            disabled={loading}
+            disabled={loading || !configured}
             onClick={() => signIn(from)}
           >
             Sign in
@@ -31,15 +31,31 @@ export default function Login() {
           <button
             type="button"
             className={`${pillButton} bg-chip py-3`}
-            disabled={loading}
+            disabled={loading || !configured}
             onClick={() => signUp(from)}
           >
             Create an account
           </button>
         </div>
-        <p className="text-[13px] text-glass-muted">
-          You'll sign in on a secure Auth0 page and come straight back here.
-        </p>
+        {error && (
+          <p role="alert" className="rounded-[14px] border border-card-line bg-card p-4 text-[14px] text-glass-text/80">
+            Sign-in failed: {error}
+          </p>
+        )}
+        {configured ? (
+          <p className="text-[13px] text-glass-muted">
+            You'll sign in on a secure Auth0 page and come straight back here.
+          </p>
+        ) : (
+          <div role="alert" className="grid gap-2 rounded-[14px] border border-card-line bg-card p-4 text-[14px] text-glass-text/80">
+            <p className="font-semibold">Sign-in needs configuration</p>
+            <p>
+              Set VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, and VITE_AUTH0_AUDIENCE in
+              frontend/.env.local, then restart the frontend. The audience must match
+              AUTH0_AUDIENCE in backend/.env.
+            </p>
+          </div>
+        )}
       </div>
     </GlassPage>
   )

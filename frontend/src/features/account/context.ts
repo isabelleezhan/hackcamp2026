@@ -5,6 +5,7 @@ export type ProfileState = {
   profile: Profile | null
   loading: boolean
   error: string | null
+  authRequired: boolean
   /** Partial update via PATCH /me; resolves with the saved profile. */
   update: (changes: Partial<Profile>) => Promise<Profile>
   refresh: () => Promise<void>
@@ -14,6 +15,7 @@ export const ProfileContext = createContext<ProfileState>({
   profile: null,
   loading: true,
   error: null,
+  authRequired: false,
   update: async () => {
     throw new Error('ProfileProvider missing')
   },

@@ -6,5 +6,5 @@ export const auth0Config = {
   audience: import.meta.env.VITE_AUTH0_AUDIENCE?.trim() ?? '',
 }
 
-/** Without Auth0 settings the app runs signed-out (previews and prototypes still work). */
+/** Protected pages require Auth0 settings; previews and developer tools remain public. */
 export const auth0Configured = Boolean(auth0Config.domain && auth0Config.clientId && auth0Config.audience)

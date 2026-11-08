@@ -179,7 +179,9 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   means the same thing.
 - **Frontend:** Auth0 sign-in (`src/auth/`, `@auth0/auth0-react`; `useAuth()` gives user, signIn,
   signUp, signOut; `RequireAuth` also blocks unverified emails). `api()` attaches the Auth0 access
-  token. The frontend no longer uses Supabase. Built: edition page, archive and preview
+  token. Protected pages redirect signed-out users to `/login`; missing Auth0 settings show setup
+  guidance there without making authenticated API calls. `/dev` and edition previews remain public.
+  The frontend no longer uses Supabase. Built: edition page, archive and preview
   (`src/features/edition/`), shared `Avatar` and `GlassPage`, Jerry's audio transcription. Still to
   build: group page and join flow, note composer, publish button, globe home.
 

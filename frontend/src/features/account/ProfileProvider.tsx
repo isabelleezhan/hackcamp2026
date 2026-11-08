@@ -2,24 +2,27 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Navigate, useLocation } from 'react-router'
 import { useAuth } from '../../auth/context'
 import GlassPage from '../../components/GlassPage'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { browserTimeZone } from '../../lib/time'
 import type { Profile } from '../../lib/types'
 import { ProfileContext, useProfile, type ProfileState } from './context'
 
 /** Loads GET /me once signed in and keeps the profile's time zone in sync with the browser. */
 export function ProfileProvider({ children }: { children: ReactNode }) {
-  const { user, configured } = useAuth()
+  const { user, configured, loading: authLoading } = useAuth()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const signedIn = Boolean(user) || !configured // unconfigured = local mock / preview mode
+  const [authRequired, setAuthRequired] = useState(false)
+  const signedIn = configured && !authLoading && Boolean(user?.emailVerified)
 
   const refresh = useCallback(async () => {
+    if (!signedIn) return
     try {
       const me = await api<Profile>('/me')
       setProfile(me)
       setError(null)
+      setAuthRequired(false)
       const tz = browserTimeZone()
       if (tz && me.timezone !== tz) {
         api<Profile>('/me', { method: 'PATCH', body: JSON.stringify({ timezone: tz }) })
@@ -28,10 +31,11 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your account')
+      setAuthRequired(e instanceof ApiError && e.status === 401)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [signedIn])
 
   useEffect(() => {
     if (signedIn) void refresh()
@@ -44,15 +48,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<ProfileState>(
-    () => ({ profile, loading: signedIn && loading, error, update, refresh }),
-    [profile, loading, error, update, refresh, signedIn],
+    () => ({ profile, loading: signedIn && loading, error, authRequired, update, refresh }),
+    [profile, loading, error, authRequired, update, refresh, signedIn],
   )
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>
 }
 
 /** Sends people without a city to onboarding first. Wrap pages that need a complete profile. */
 export function RequireProfile({ children }: { children: ReactNode }) {
-  const { profile, loading, error, refresh } = useProfile()
+  const { profile, loading, error, authRequired, refresh } = useProfile()
+  const { signIn, signOut } = useAuth()
   const location = useLocation()
   if (loading) {
     return (
@@ -60,6 +65,20 @@ export function RequireProfile({ children }: { children: ReactNode }) {
         <p role="status" className="text-[15px] text-glass-muted">
           Loading your account…
         </p>
+      </GlassPage>
+    )
+  }
+  if (authRequired) {
+    return (
+      <GlassPage>
+        <div role="alert" className="grid gap-3 rounded-[16px] border border-card-line bg-card px-4 py-5">
+          <h1 className="text-[22px] font-bold">Please sign in again</h1>
+          <p className="text-[15px] text-glass-text/80">{error ?? 'Your session could not be verified.'}</p>
+          <button type="button" onClick={() => signIn(location.pathname + location.search)}
+            className="rounded-full bg-chip px-4 py-2 font-semibold">Sign in</button>
+          <button type="button" onClick={signOut}
+            className="rounded-full bg-chip px-4 py-2 font-semibold">Sign out</button>
+        </div>
       </GlassPage>
     )
   }

@@ -1,3 +1,4 @@
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +8,9 @@ import jwt
 from fastapi import HTTPException
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
+JWT_CLOCK_SKEW_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -64,9 +68,18 @@ class Auth0Authenticator:
                 algorithms=["RS256"],
                 audience=self.settings.auth0_audience,
                 issuer=self.settings.auth0_issuer,
+                leeway=JWT_CLOCK_SKEW_SECONDS,
                 options={"require": ["exp", "iat", "iss", "sub"]},
             )
         except jwt.PyJWTError as exc:
+            # Log validation categories and public configuration, never the bearer token
+            # or claims from a token whose signature/issuer have not been verified.
+            logger.warning(
+                "Auth0 token rejected: %s (expected issuer=%s audience=%s)",
+                type(exc).__name__,
+                self.settings.auth0_issuer,
+                self.settings.auth0_audience,
+            )
             raise HTTPException(
                 401, "Invalid or expired access token", headers={"WWW-Authenticate": "Bearer"}
             ) from exc

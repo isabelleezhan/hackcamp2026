@@ -20,7 +20,9 @@ uvicorn app.main:app --reload --port 8000
 
 API explorer: http://localhost:8000/docs. OpenAPI contract: http://localhost:8000/openapi.json. `/health` reports process health; `/ready` verifies Supabase connectivity, worker columns and required service configuration. It does not test provider credentials by generating content or sending email.
 
-The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its server-side secret, `AUTH0_DOMAIN` to the tenant domain without `https://`, and `AUTH0_AUDIENCE` to the Auth0 API Identifier. Set `GEMINI_API_KEY`, `RESEND_API_KEY`, a verified `EMAIL_FROM`, and an independent random `WORKER_SECRET`. Set `FRONTEND_URL` to the real frontend origin and `CORS_ORIGINS` to a JSON array of allowed origins. Never put server secrets in Vite environment variables or client code. Configuration loads from the working directory's `.env`.
+The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its server-side secret, `AUTH0_DOMAIN` to the tenant domain without `https://`, and `AUTH0_AUDIENCE` to the Auth0 API Identifier. Set `GEMINI_API_KEY`, `RESEND_API_KEY`, a verified `EMAIL_FROM`, and an independent random `WORKER_SECRET`. Set `FRONTEND_URL` to the real frontend origin and `CORS_ORIGINS` to a JSON array of allowed origins. Never put server secrets in Vite environment variables or client code. Configuration loads from `backend/.env`; restart the backend after changing it.
+
+JWT validation allows 60 seconds of clock skew for time claims, while still checking the signature, issuer, audience and required claims. If the terminal logs `ImmatureSignatureError`, synchronize the backend machine's clock; tokens further in the future are rejected. For local sign-out, add `http://localhost:5173` to **Allowed Logout URLs** on the Auth0 application whose Client ID matches the frontend (not just the tenant settings).
 
 `../supabase/migrations/0001_init.sql`, `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql` are applied to project `ivjlummkprxwybqqfgor`. Migration `0003` was verified on November 7, 2026. Do not rerun these migrations on that project.
 
