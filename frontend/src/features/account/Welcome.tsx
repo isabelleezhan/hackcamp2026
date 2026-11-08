@@ -3,21 +3,33 @@ import { Navigate, useLocation, useNavigate } from 'react-router'
 import GlassPage from '../../components/GlassPage'
 import { card, input, label, primary, secondary, subtitle, title } from '../../components/ui'
 import { approximateLocation } from '../../lib/location'
+import type { Profile } from '../../lib/types'
+import CityPicker, { type CityMatch } from './CityPicker'
 import { useProfile } from './context'
 
 /** First run (and "Change location"): your name, and where you are, approximately. */
 export default function Welcome() {
-  const { profile, loading, update } = useProfile()
+  const { profile, loading } = useProfile()
+  if (loading) return null
+  if (!profile) return <Navigate to="/" replace />
+  // Build the form only once the profile has loaded, so the fields start with saved values.
+  return <WelcomeForm key={profile.id} profile={profile} />
+}
+
+function WelcomeForm({ profile }: { profile: Profile }) {
+  const { update } = useProfile()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/'
   const [name, setName] = useState(profile?.display_name ?? '')
-  const [city, setCity] = useState(profile?.city ?? '')
+  // Already placed on the map? Keep that unless they pick a new city.
+  const [picked, setPicked] = useState<CityMatch | null>(
+    profile?.city && profile.lat != null && profile.lng != null
+      ? { city: profile.city, label: profile.city, lat: profile.lat, lng: profile.lng }
+      : null,
+  )
   const [busy, setBusy] = useState<'locate' | 'save' | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  if (loading) return null
-  if (!profile) return <Navigate to="/" replace />
 
   async function useMyLocation() {
     setBusy('locate')
@@ -29,7 +41,7 @@ export default function Welcome() {
         return
       }
       await update({
-        display_name: name.trim() || profile!.display_name,
+        display_name: name.trim() || profile.display_name,
         location_mode: 'auto',
         city: found.city,
         lat: found.lat,
@@ -50,11 +62,21 @@ export default function Welcome() {
 
   async function save(e: FormEvent) {
     e.preventDefault()
-    if (!name.trim() || !city.trim()) return
+    if (!name.trim()) return
+    if (!picked) {
+      setError('Pick your city from the suggestions so you show up on the globe.')
+      return
+    }
     setBusy('save')
     setError(null)
     try {
-      await update({ display_name: name.trim(), location_mode: 'manual', city: city.trim() })
+      await update({
+        display_name: name.trim(),
+        location_mode: 'manual',
+        city: picked.city,
+        lat: picked.lat,
+        lng: picked.lng,
+      })
       navigate(from, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save. Try again.')
@@ -98,12 +120,16 @@ export default function Welcome() {
 
           <div>
             <label htmlFor="city" className={label}>
-              Type your city
+              Choose your city
             </label>
-            <input id="city" className={input} value={city} maxLength={120} placeholder="Vancouver" autoComplete="address-level2"
-              onChange={(e) => setCity(e.target.value)} />
+            <CityPicker
+              initialText={profile.city ?? ''}
+              value={picked}
+              onChange={setPicked}
+              disabled={busy !== null}
+            />
           </div>
-          <button type="submit" className={secondary} disabled={busy !== null || !name.trim() || !city.trim()}>
+          <button type="submit" className={secondary} disabled={busy !== null || !name.trim() || !picked}>
             {busy === 'save' ? 'Saving…' : 'Save and continue'}
           </button>
 

@@ -29,7 +29,7 @@ from pydantic import ValidationError
 from app.auth import SupabaseAuthenticator
 from app.config import Settings, get_settings
 from app.deps import Identity, current_user, get_store
-from app.jobs import Jobs
+from app.jobs import Jobs, apply_schedule_after_close, reschedule_open_week
 from app.media import MAX_AUDIO_BYTES, MIME_TYPES, inspect_audio
 from app.models import (
     AudioResult,
@@ -37,6 +37,7 @@ from app.models import (
     GroupCreate,
     GroupJoin,
     GroupRename,
+    GroupSchedule,
     ProfileUpdate,
     PublishRequest,
     ReflectionWrite,
@@ -402,6 +403,32 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
             **rows[0],
             "membership": member,
             "invitation_url": f"{settings.frontend_url}/join?code={rows[0]['join_code']}",
+        }
+
+    @app.patch("/groups/{group_id}/schedule", tags=["Groups"])
+    async def set_schedule(group_id: UUID, data: GroupSchedule, user: User, store: Database):
+        """Change when the paper comes out (day, hour, time zone). Organizers only.
+
+        The open week moves to the next release time after now.
+        """
+        member = await membership(store, user, group_id)
+        if member["role"] != "organizer":
+            raise HTTPException(403, "Only organizers can change when the paper comes out")
+        rows = await store.write(
+            "PATCH",
+            "groups",
+            {"publish_weekday": data.weekday, "publish_hour": data.hour, "timezone": data.timezone},
+            admin=True,
+            id=f"eq.{group_id}",
+        )
+        if not rows:
+            raise HTTPException(404, "Group not found")
+        deadline = await reschedule_open_week(store, rows[0])
+        return {
+            **rows[0],
+            "membership": member,
+            "invitation_url": f"{settings.frontend_url}/join?code={rows[0]['join_code']}",
+            "next_deadline_at": deadline,
         }
 
     @app.post("/groups/{group_id}/leave", status_code=204, tags=["Groups"])
@@ -866,11 +893,20 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         jobs: Annotated[Jobs, Depends(get_jobs)],
     ):
         await membership(store, user, group_id, organizer=True)
+        closing = await store.rows(
+            "issue_periods",
+            admin=True,
+            id=f"eq.{data.period_id}",
+            group_id=f"eq.{group_id}",
+            select="deadline_at,closed_at",
+        )
         edition_id = await store.rpc(
             "close_issue",
             {"gid": str(group_id), "expected_period_id": str(data.period_id)},
             admin=True,
         )
+        if closing and not closing[0].get("closed_at"):
+            await apply_schedule_after_close(store, str(group_id), closing[0]["deadline_at"])
         if edition_id:
             background.add_task(jobs.process_edition, edition_id)
         return {"edition_id": edition_id, "status": "queued" if edition_id else "empty"}

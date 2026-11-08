@@ -53,6 +53,9 @@ export type Group = {
   created_by: string
   created_at: string
   invitation_url: string
+  /** Release day (Monday=0 ... Sunday=6) and hour in `timezone`. Missing before migration 0008. */
+  publish_weekday?: number
+  publish_hour?: number
   membership: { group_id: string; user_id: string; role: 'organizer' | 'member'; email_enabled: boolean }
 }
 

@@ -75,6 +75,19 @@ class GroupRename(StrictModel):
         return value
 
 
+class GroupSchedule(StrictModel):
+    """When the paper comes out: weekday (Monday=0 ... Sunday=6) and hour, in `timezone`."""
+
+    weekday: int = Field(ge=0, le=6)
+    hour: int = Field(ge=0, le=23)
+    timezone: str = Field(max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def known_timezone(cls, value: str) -> str:
+        return valid_timezone(value)
+
+
 class GroupCreate(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     timezone: str = "America/Vancouver"

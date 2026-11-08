@@ -30,7 +30,7 @@ export function EditionList({
   if (!editions.length) {
     return (
       <p className="rounded-[12px] border border-card-line bg-card px-[14px] py-3 text-[14px] text-glass-text/80">
-        No issues yet. The first one comes out Sunday at 6 p.m., once someone has written a note.
+        No issues yet. The first one comes out when the week closes, once someone has written a note.
       </p>
     )
   }

@@ -116,6 +116,19 @@ route('DELETE', '/me/avatar', () => {
   profiles[ME].avatar_url = null
   return profiles[ME]
 })
+route('GET', '/geocode/search', ({ query }) => {
+  const q = String(query.get('q') ?? '').trim().toLowerCase()
+  const places = [
+    ['Vancouver', 'British Columbia, Canada', 49.3, -123.1], ['Toronto', 'Ontario, Canada', 43.7, -79.4],
+    ['London', 'England, United Kingdom', 51.5, -0.1], ['London', 'Ontario, Canada', 43.0, -81.2],
+    ['Lisbon', 'Portugal', 38.7, -9.1], ['Tokyo', 'Japan', 35.7, 139.7], ['Seoul', 'South Korea', 37.6, 127.0],
+    ['Sydney', 'New South Wales, Australia', -33.9, 151.2], ['Mexico City', 'Mexico', 19.4, -99.1],
+    ['Bengaluru', 'Karnataka, India', 13.0, 77.6], ['Paris', 'France', 48.9, 2.4], ['Berlin', 'Germany', 52.5, 13.4],
+  ]
+  if (q.length < 2) return [422, { detail: 'Type at least 2 letters' }]
+  return places.filter(([city]) => city.toLowerCase().startsWith(q))
+    .map(([city, rest, lat, lng]) => ({ city, label: `${city}, ${rest}`, lat, lng }))
+})
 route('GET', '/geocode/reverse', ({ query }) => {
   const lat = Number(query.get('lat')), lng = Number(query.get('lng'))
   const known = [['Vancouver', 49.28, -123.12], ['Toronto', 43.65, -79.38], ['London', 51.51, -0.13], ['Lisbon', 38.72, -9.14], ['Tokyo', 35.68, 139.69]]
@@ -139,6 +152,28 @@ route('PATCH', '/groups/:gid', ({ p, body }) => {
   if (!name) return [422, { detail: 'Enter a name' }]
   groups[p.gid].name = name.slice(0, 120)
   return groupView(groups[p.gid])
+})
+// Next weekday (Mon=0..Sun=6) at hour:00 in the time zone, found hour by hour (fine for a mock).
+function nextRelease(weekday, hour, timeZone) {
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', hour: 'numeric', hourCycle: 'h23' })
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const t = new Date()
+  t.setUTCMinutes(0, 0, 0)
+  for (let i = 1; i <= 24 * 8; i++) {
+    const d = new Date(t.getTime() + i * 3600_000)
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value]))
+    if (days.indexOf(parts.weekday) === weekday && Number(parts.hour) === hour) return d.toISOString()
+  }
+  return nextSunday6pm()
+}
+route('PATCH', '/groups/:gid/schedule', ({ p, body }) => {
+  if (membership(p.gid).role !== 'organizer') return [403, { detail: 'Only organizers can change when the paper comes out' }]
+  const { weekday, hour, timezone } = body
+  if (!(weekday >= 0 && weekday <= 6 && hour >= 0 && hour <= 23 && timezone)) return [422, { detail: 'Invalid schedule' }]
+  Object.assign(groups[p.gid], { publish_weekday: weekday, publish_hour: hour, timezone })
+  const open = currentPeriod(p.gid)
+  if (open) open.deadline_at = nextRelease(weekday, hour, timezone)
+  return { ...groupView(groups[p.gid]), next_deadline_at: open?.deadline_at ?? null }
 })
 route('POST', '/groups/:gid/leave', ({ p }) => {
   const others = memberships.filter((m) => m.group_id === p.gid && m.user_id !== ME)

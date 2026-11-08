@@ -1,10 +1,12 @@
-import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../../auth/context'
 import Avatar from '../../components/Avatar'
 import { card, input, secondary } from '../../components/ui'
 import { api } from '../../lib/api'
 import { inviteUrl } from '../../lib/invite'
+import { hourLabel, scheduleLabel, scheduleOf, timeZones, WEEKDAYS } from '../../lib/schedule'
+import { deadlineLabel } from '../../lib/time'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
 
@@ -143,13 +145,119 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-/** Weekday and time the week closes, in the group's time zone (always Sunday 6 p.m. there). */
-function closesLabel(timeZone: string) {
-  const zone =
-    new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'long' })
-      .formatToParts(new Date())
-      .find((p) => p.type === 'timeZoneName')?.value ?? timeZone
-  return `Sundays at 6 p.m. ${zone}`
+/** When the paper comes out. Organizers can change the day, hour and time zone. */
+function ScheduleRow() {
+  const { group, period, isOrganizer, refresh } = useGroup()
+  const current = scheduleOf(group)
+  const [editing, setEditing] = useState(false)
+  const [weekday, setWeekday] = useState(current.weekday)
+  const [hour, setHour] = useState(current.hour)
+  const [timeZone, setTimeZone] = useState(group.timezone)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const zones = useMemo(() => timeZones(group.timezone), [group.timezone])
+  const select = `${input} py-2 text-[15px]`
+
+  function open() {
+    setWeekday(current.weekday)
+    setHour(current.hour)
+    setTimeZone(group.timezone)
+    setError(null)
+    setEditing(true)
+  }
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await api(`/groups/${group.id}/schedule`, {
+        method: 'PATCH',
+        body: JSON.stringify({ weekday, hour, timezone: timeZone }),
+      })
+      await refresh()
+      setEditing(false)
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Couldn't change the release time. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={save} className={`${row} flex-col items-stretch`}>
+        <p className="font-semibold">Comes out every</p>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="grid gap-1 text-[13px] text-glass-muted">
+            Day
+            <select className={select} value={weekday} disabled={busy} onChange={(e) => setWeekday(Number(e.target.value))}>
+              {WEEKDAYS.map((day, i) => (
+                <option key={day} value={i}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-[13px] text-glass-muted">
+            Time
+            <select className={select} value={hour} disabled={busy} onChange={(e) => setHour(Number(e.target.value))}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="grid gap-1 text-[13px] text-glass-muted">
+          Time zone
+          <select className={select} value={timeZone} disabled={busy} onChange={(e) => setTimeZone(e.target.value)}>
+            {zones.map((z) => (
+              <option key={z} value={z}>
+                {z.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-[13px] text-glass-muted">
+          This week will close at the next {WEEKDAYS[weekday]} {hourLabel(hour)}. Everyone's notes so far stay in it.
+        </p>
+        {error && (
+          <p role="alert" className="text-[13px] text-alert">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-3 text-[14px] font-semibold">
+          <button type="submit" disabled={busy} className="text-accent-text disabled:opacity-50">
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setEditing(false)} className="text-glass-muted">
+            Cancel
+          </button>
+        </div>
+      </form>
+    )
+  }
+
+  return (
+    <div className={row}>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold">Comes out</span>
+        <span className="block text-[13px] text-glass-muted">{scheduleLabel(group)}</span>
+        {period && (
+          <span className="block text-[13px] text-glass-muted">
+            Next issue: {deadlineLabel(period.deadline_at, group.timezone)}
+          </span>
+        )}
+      </span>
+      {isOrganizer && (
+        <button type="button" onClick={open} className="shrink-0 text-[14px] font-semibold text-accent-text">
+          Change
+        </button>
+      )}
+    </div>
+  )
 }
 
 /** /groups/:groupId/settings: invite people, your email preference, members and your account. */
@@ -249,12 +357,7 @@ export default function GroupSettingsTab() {
             className="relative h-[30px] w-[50px] shrink-0 rounded-full bg-glass-text/15 transition-colors after:absolute after:left-[3px] after:top-[3px] after:size-6 after:rounded-full after:bg-white after:shadow-[0_2px_4px_rgba(36,56,92,.25)] after:transition-transform peer-checked:bg-accent peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent-text peer-disabled:opacity-60"
           />
         </label>
-        <div className={row}>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">Comes out</span>
-            <span className="block text-[13px] text-glass-muted">{closesLabel(group.timezone)}</span>
-          </span>
-        </div>
+        <ScheduleRow />
         {error && (
           <p role="alert" className="border-t border-card-line px-4 py-2.5 text-[14px] text-alert">
             {error}

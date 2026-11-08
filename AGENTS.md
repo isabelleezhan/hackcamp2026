@@ -42,7 +42,7 @@ round avatar pins, frosted-glass sheet, record button).
 - Each member chooses whether to **get the paper by email** (`email_opt_in`, default off).
 
 ### 3. During the week
-- Creating a group opens **week 1**. A week closes **Sunday 18:00 in the group's time zone**;
+- Creating a group opens **week 1**. A week closes at the group's release time (**default Sunday 18:00**, organizers can change it) in the group's time zone;
   the next week opens immediately. See `backend/app/periods.py`.
 - **The home screen is the globe:** pins at each member's last known city, with their local
   time, when the location was last updated, and how many notes they've sent this week. There's
@@ -158,6 +158,8 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 | `PATCH /groups/{id}` `{name}` | organizer | rename the newsletter |
 | `POST /groups/{id}/leave` | member | leave; your open-week notes are removed; last organizer can't leave while others remain |
 | `DELETE /groups/{id}` | organizer | delete the newsletter and everything in it, for everyone |
+| `PATCH /groups/{id}/schedule` `{weekday, hour, timezone}` | organizer | when the paper comes out (Mon=0…Sun=6, hour 0–23); the open week moves to the next release time |
+| `GET /geocode/search?q=` | user | city suggestions for the location picker: `[{city, label, lat, lng}]`, lat/lng at 1 decimal |
 | `POST /groups/{id}/transcribe` (multipart audio) | member | → `{transcript, audio_path, audio_seconds}` |
 | `GET /groups/{id}/notes/mine` | member | my notes in the current period |
 | `POST /groups/{id}/notes` | member | add note (checks weekly limit and that the period is open) |
@@ -223,8 +225,16 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 - **Rename, leave and delete:** `0007_group_management.sql` adds `leave_group_for`,
   `delete_group_for` and an internal `delete_group_rows`, and lets the reflection guard allow deletes
-  only while a group is being deleted. **Not applied to the live project yet**; leave/delete fail
-  until it is (rename works without it).
+  only while a group is being deleted. **Applied to the live project on November 8, 2026** (verified:
+  the functions exist and refuse unknown groups).
+
+- **Release schedule:** `0008_release_schedule.sql` adds `groups.publish_weekday` and
+  `groups.publish_hour` (defaults Sunday 18:00). The backend applies them to the open week on change
+  and to each new week after a close (`close_issue()` is unchanged). **Applied to the live
+  project on November 8, 2026** (verified: columns exist, existing groups default to Sunday 18:00).
+- **Typed locations:** the city field is a picker backed by `GET /geocode/search` (Nominatim, same
+  1 request/second budget and cache). Picking a city saves its rounded coordinates, so manual
+  locations appear on the globe.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

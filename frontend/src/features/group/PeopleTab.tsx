@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router'
 import Avatar from '../../components/Avatar'
 import { card } from '../../components/ui'
-import { localTime, weekday } from '../../lib/time'
+import { deadlineLabel, localTime, weekday } from '../../lib/time'
 import { useGroup, type Person } from './context'
 
 /** Only whether someone has sent mail this week. What they wrote stays sealed until the paper. */
@@ -18,14 +18,14 @@ const mailLabel = (p: Person) => (p.notes > 0 ? 'Sent mail this week' : 'No mail
 
 /** People tab (the globe's list): everyone, their city and local time, and whether they've sent mail. */
 export default function PeopleTab() {
-  const { people, meId, group } = useGroup()
+  const { people, meId, group, period } = useGroup()
   const sent = people.filter((p) => p.notes > 0).length
 
   return (
     <div className="grid gap-[14px]">
       <div>
         <p className="text-[14px] text-glass-muted">
-          {sent} of {people.length} sent mail this week. It opens Sunday at 6 p.m.
+          {sent} of {people.length} sent mail this week. {period ? `It opens ${deadlineLabel(period.deadline_at, group.timezone)}.` : ''}
         </p>
         <div className="mt-2.5 flex gap-1" aria-hidden="true">
           {people.map((p) => (
@@ -70,8 +70,9 @@ export default function PeopleTab() {
 /** /groups/:groupId/people/:userId: where someone is, and whether their mail is in. */
 export function PersonView() {
   const { userId = '' } = useParams()
-  const { people, meId } = useGroup()
+  const { people, meId, period, group } = useGroup()
   const person = people.find((p) => p.id === userId)
+  const opens = period ? ` ${deadlineLabel(period.deadline_at, group.timezone)}` : ' at the end of the week'
   const isMe = userId === meId
 
   if (!person) {
@@ -109,7 +110,7 @@ export function PersonView() {
           <p className="font-bold">{sent ? 'Mail is in' : 'No mail yet'}</p>
           <p className="text-[14px] text-glass-muted">
             {sent
-              ? `${isMe ? 'Your' : `${person.name}'s`} mail stays sealed until the paper comes out Sunday at 6 p.m.`
+              ? `${isMe ? 'Your' : `${person.name}'s`} mail stays sealed until the paper comes out${opens}.`
               : isMe
                 ? "You haven't sent anything this week."
                 : `${person.name} hasn't sent anything this week.`}

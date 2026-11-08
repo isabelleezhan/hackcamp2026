@@ -94,3 +94,63 @@ async def test_requests_are_spaced_at_least_one_second_apart(settings, monkeypat
         g = ReverseGeocoder(settings, client)
         await asyncio.gather(g.city(10, 10), g.city(20, 20))
     assert len(slept) == 1 and 0 < slept[0] <= 1.0
+
+
+def test_city_search_returns_rounded_matches_and_caches(settings):
+    calls = []
+
+    def handler(request):
+        assert request.url.host == "nominatim.openstreetmap.org"
+        assert request.url.path == "/search"
+        assert "MailBuds" in request.headers["user-agent"]
+        calls.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "lat": "51.5073",
+                    "lon": "-0.1276",
+                    "name": "London",
+                    "address": {"city": "London", "state": "England", "country": "United Kingdom"},
+                },
+                {
+                    "lat": "42.9832",
+                    "lon": "-81.2431",
+                    "name": "London",
+                    "address": {"city": "London", "state": "Ontario", "country": "Canada"},
+                },
+                {
+                    "lat": "51.5073",
+                    "lon": "-0.1276",
+                    "name": "London",
+                    "address": {"city": "London", "state": "England", "country": "United Kingdom"},
+                },
+                {"lat": "bad", "lon": "0", "name": "Broken"},
+            ],
+        )
+
+    with make_client(settings, handler) as c:
+        first = c.get("/geocode/search", params={"q": "  London "}, headers=AUTH)
+        again = c.get("/geocode/search", params={"q": "london"}, headers=AUTH)
+    assert first.status_code == 200, first.text
+    assert first.json() == [
+        {"city": "London", "label": "London, England, United Kingdom", "lat": 51.5, "lng": -0.1},
+        {"city": "London", "label": "London, Ontario, Canada", "lat": 43.0, "lng": -81.2},
+    ]
+    assert again.json() == first.json()
+    assert len(calls) == 1 and calls[0]["q"] == "london"
+
+
+def test_city_search_needs_sign_in_and_two_letters(settings):
+    with make_client(settings) as c:
+        assert c.get("/geocode/search", params={"q": "London"}).status_code == 401
+        assert c.get("/geocode/search", params={"q": "L"}, headers=AUTH).status_code == 422
+
+
+def test_city_search_outage_returns_empty(settings):
+    def handler(request):
+        return httpx.Response(503)
+
+    with make_client(settings, handler) as c:
+        result = c.get("/geocode/search", params={"q": "Paris"}, headers=AUTH)
+    assert result.status_code == 200 and result.json() == []
