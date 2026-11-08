@@ -99,7 +99,8 @@ round avatar pins, frosted-glass sheet, record button).
   data for optional headline use. Never invent shared activities or force humor onto hard news.
 - Preserve names, facts and attribution. Never invent events, quotes, relationships or advice.
 - Handle hard news respectfully; don't force positive framing.
-- Include every contributor; keep the paper to a few minutes of reading however many notes there are.
+- Include every contributor. No word limits: each story's length follows what that person shared
+  (output caps of 20,000 characters per story only stop runaway generations).
 - Both group voice notes and standalone audio use the shared transcription service,
   `GEMINI_TRANSCRIPTION_MODEL` and `GEMINI_FALLBACK_MODELS`. They do not use the newspaper
   model. Transcription failures retain group audio and expose a safe actionable error.
@@ -213,8 +214,8 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 
 - **Profile photos:** `0006_profile_photos.sql` adds `profiles.avatar_path` and a private
-  `avatars` bucket. **Not applied to the live project yet**; apply it before deploying the backend
-  that serves `/me/avatar`. The app crops photos to a 320px square JPEG (which drops EXIF/GPS) and
+  `avatars` bucket. **Applied to the live project on November 8, 2026** (verified: column and
+  private bucket exist). The app crops photos to a 320px square JPEG (which drops EXIF/GPS) and
   only group members get the 6-hour signed links.
 
 ## Open decisions (ask the team; don't guess)

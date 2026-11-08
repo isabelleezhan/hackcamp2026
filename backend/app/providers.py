@@ -82,15 +82,16 @@ STRUCTURE
   never copy the example's cooking theme unless the notes support it. Never imply people acted
   together, competed or coordinated unless they said so. With one contributor, hook into their
   actual moment instead. No fabricated drama, misleading suspense or generic theme lists.
-- introduction: 2 lively sentences that draw readers into the week's real moments, with a
+- introduction: a lively opening that draws readers into the week's real moments, with a
   playful connection where one exists. For a single contributor, focus on their story. No general
   statements ("brought new beginnings", "stayed connected", "here is a look at").
 - member_updates: exactly one per contributor, keeping their user_id and display_name exactly.
   A contributor may have several notes (each has recorded_at and maybe city). Combine all of
   them into one story in time order, keep the most meaningful moments, and cite every one of
   their reflection IDs in source_reflection_ids (only their own).
-  headline: at most 8 words, sentence case, an engaging hook specific to their real story.
-  text: about {words} words, third person, past tense, using their display_name. Open with a
+  headline: a short, engaging hook in sentence case, specific to their real story.
+  text: third person, past tense, using their display_name. There is no word limit: let the
+  length follow what they shared, so a busy week full of notes can be a long story. Open with a
   concrete detail, tell what unfolded, and finish with a witty callback or warm landing when
   appropriate. Use gentle observational humor, playful phrasing and everyday absurdity. A short
   note deserves a short story: do not pad it with imagined scenes, dialogue or reactions.
@@ -119,15 +120,6 @@ MAX_CONTRIBUTORS = 100
 MAX_SOURCES = MAX_CONTRIBUTORS * 30  # 30 notes per person per week (see 0004_notes_location.sql)
 SOURCE_FIELDS = ("reflection_id", "user_id", "display_name", "recorded_at", "city", "body")
 QUOTED = re.compile(r"[\"“”]([^\"“”]+)[\"“”]")
-
-
-def words_per_update(contributors: int) -> str:
-    """Keep the whole paper to a few minutes of reading, however many people write."""
-    if contributors <= 4:
-        return "90-140"
-    if contributors <= 8:
-        return "60-100"
-    return "40-70"
 
 
 def _words(text: str) -> str:
@@ -205,7 +197,8 @@ class Gemini:
                             "responseMimeType": "application/json",
                             "responseJsonSchema": schema,
                             "temperature": 0.2,
-                            "maxOutputTokens": 16384,
+                            # Room for long issues: stories have no word limit.
+                            "maxOutputTokens": 65536,
                             # A newspaper is a bounded summarization task. Gemini 3
                             # otherwise spends much of the request budget thinking.
                             **(
@@ -259,7 +252,7 @@ class Gemini:
             ({k: row.get(k) for k in SOURCE_FIELDS} for row in sources),
             key=lambda row: (str(row["display_name"]), str(row["recorded_at"] or "")),
         )
-        rules = EDITOR_RULES.replace("{words}", words_per_update(len(contributors)))
+        rules = EDITOR_RULES
         request = json.dumps(
             {"group_name": group_name, "contributors": len(contributors), "reflections": notes},
             default=str,

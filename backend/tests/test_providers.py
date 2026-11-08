@@ -303,12 +303,11 @@ async def test_gives_up_after_second_invalid_answer(settings, source, newspaper)
             await Gemini(settings, client).newspaper([source])
 
 
-def test_prompt_length_scales_with_group_size():
-    from app.providers import words_per_update
+def test_prompt_sets_no_word_limit():
+    from app.providers import EDITOR_RULES
 
-    assert words_per_update(3) == "90-140"
-    assert words_per_update(6) == "60-100"
-    assert words_per_update(20) == "40-70"
+    assert "{words}" not in EDITOR_RULES
+    assert "no word limit" in EDITOR_RULES
 
 
 def test_gemini_schema_drops_keywords_gemini_rejects():

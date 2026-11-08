@@ -124,9 +124,13 @@ class PublishRequest(StrictModel):
     period_id: UUID
 
 
+# No word limits on the paper. These caps only stop runaway output (about 3,000+ words per story).
+MAX_STORY_CHARS = 20_000
+
+
 class Story(StrictModel):
-    headline: str = Field(min_length=1, max_length=180)
-    text: str = Field(min_length=1, max_length=1500)
+    headline: str = Field(min_length=1, max_length=300)
+    text: str = Field(min_length=1, max_length=MAX_STORY_CHARS)
     source_reflection_ids: list[UUID] = Field(min_length=1, max_length=100)
 
 
@@ -140,8 +144,8 @@ class MemberUpdate(Story):
 
 
 class Newspaper(StrictModel):
-    headline: str = Field(min_length=1, max_length=180)
-    introduction: str = Field(min_length=1, max_length=1500)
+    headline: str = Field(min_length=1, max_length=300)
+    introduction: str = Field(min_length=1, max_length=MAX_STORY_CHARS)
     member_updates: list[MemberUpdate] = Field(min_length=1, max_length=100)
     little_victories: list[Story] = Field(default_factory=list, max_length=100)
     looking_ahead: list[Story] = Field(default_factory=list, max_length=100)
