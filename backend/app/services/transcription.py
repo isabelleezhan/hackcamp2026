@@ -10,7 +10,7 @@ from google import genai
 from google.genai import errors, types
 from mutagen import File as AudioFile
 
-from ..config import get_settings
+from ..config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ def validate_audio(data: bytes, filename: str) -> str:
     return mime_type
 
 
-async def transcribe_audio(data: bytes, mime_type: str) -> str:
-    settings = get_settings()
+async def transcribe_audio(data: bytes, mime_type: str, *, settings: Settings | None = None) -> str:
+    settings = settings or get_settings()
     api_key = settings.gemini_api_key.get_secret_value()
     if not api_key:
         raise HTTPException(
@@ -161,6 +161,10 @@ async def transcribe_audio(data: bytes, mime_type: str) -> str:
     # Dedicated transcription models return audio_transcription.text instead of
     # ordinary text parts, which this SDK's response.text helper doesn't read.
     candidates = getattr(response, "candidates", None) or []
+    if candidates and getattr(candidates[0], "finish_reason", None) not in (None, "STOP"):
+        raise HTTPException(
+            502, "Transcription was incomplete or blocked. Try a shorter recording."
+        )
     content = getattr(candidates[0], "content", None) if candidates else None
     parts = getattr(content, "parts", None) or []
     audio_text = [

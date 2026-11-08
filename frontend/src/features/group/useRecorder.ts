@@ -5,7 +5,7 @@ export const HINT_AT_SECONDS = 150
 
 const PREFERRED = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
 
-export type RecorderState = 'idle' | 'recording' | 'done' | 'error'
+export type RecorderState = 'idle' | 'requesting' | 'recording' | 'done' | 'error'
 
 /** MediaRecorder with a 3-minute cap. Stops itself at 3:00 and keeps what was recorded. */
 export function useRecorder() {
@@ -16,11 +16,23 @@ export function useRecorder() {
   const rec = useRef<MediaRecorder | null>(null)
   const timer = useRef<number | null>(null)
   const started = useRef(0)
+  const generation = useRef(0)
+  const streamRef = useRef<MediaStream | null>(null)
 
   const cleanup = useCallback(() => {
     if (timer.current) window.clearInterval(timer.current)
     timer.current = null
-    rec.current?.stream.getTracks().forEach((t) => t.stop())
+    generation.current += 1
+    const recorder = rec.current
+    rec.current = null
+    if (recorder) {
+      recorder.onstop = null
+      recorder.ondataavailable = null
+      recorder.onerror = null
+      if (recorder.state !== 'inactive') recorder.stop()
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
   }, [])
 
   const stop = useCallback(() => {
@@ -28,6 +40,8 @@ export function useRecorder() {
   }, [])
 
   const start = useCallback(async () => {
+    cleanup()
+    const run = generation.current
     setError(null)
     setBlob(null)
     setSeconds(0)
@@ -36,16 +50,29 @@ export function useRecorder() {
       setError("This browser can't record audio. Type your note instead.")
       return
     }
+    setState('requesting')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (run !== generation.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      streamRef.current = stream
       const mimeType = PREFERRED.find((t) => MediaRecorder.isTypeSupported(t))
       const r = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       const chunks: Blob[] = []
       r.ondataavailable = (e) => e.data.size && chunks.push(e.data)
       r.onstop = () => {
+        if (run !== generation.current) return
         cleanup()
         setBlob(new Blob(chunks, { type: r.mimeType.split(';')[0] || 'audio/webm' }))
         setState('done')
+      }
+      r.onerror = () => {
+        if (run !== generation.current) return
+        cleanup()
+        setState('error')
+        setError('Recording failed. Try again, upload an audio file, or type your note.')
       }
       rec.current = r
       r.start(1000)
@@ -57,6 +84,7 @@ export function useRecorder() {
         if (s >= MAX_SECONDS) stop()
       }, 250)
     } catch {
+      if (run !== generation.current) return
       cleanup()
       setState('error')
       setError('Microphone access was blocked. Allow it in your browser settings, or type your note instead.')

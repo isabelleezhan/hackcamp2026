@@ -20,6 +20,20 @@ uvicorn app.main:app --reload --port 8000
 
 API explorer: http://localhost:8000/docs. OpenAPI contract: http://localhost:8000/openapi.json. `/health` reports process health; `/ready` verifies Supabase connectivity, worker columns and required service configuration. It does not test provider credentials by generating content or sending email.
 
+### Audio validation on Windows
+
+If `ffprobe` is not on PATH, install a local binary from the `backend` directory:
+
+```powershell
+npm.cmd install --prefix .tools/ffprobe --no-audit --no-fund --ignore-scripts @ffprobe-installer/ffprobe
+node -p "require('./.tools/ffprobe/node_modules/@ffprobe-installer/ffprobe').path"
+```
+
+Copy the printed absolute path into `FFPROBE_PATH="..."` in `backend/.env` and restart
+Uvicorn. The tools directory and `.env` are ignored by Git. Production Docker already installs
+FFmpeg. Audio inspection runs the probe in a worker thread with a 15-second process timeout,
+so Windows `--reload` works without asyncio subprocess support.
+
 Set `SUPABASE_URL`, public `SUPABASE_ANON_KEY` and server-only
 `SUPABASE_SERVICE_ROLE_KEY`. Sessions are verified using `/auth/v1/user`, including current
 email confirmation. No external identity settings or JWT signing secret are needed.
@@ -168,3 +182,10 @@ The test suite uses HTTP mocks for Supabase/Gemini/Resend, plus real FFprobe on 
 No real customer reflections were sent to Gemini, and no edition emails were sent. Full live Supabase Auth → text → Gemini → Resend acceptance still requires configured secrets, a verified email sender, Supabase Auth setup, and two test accounts.
 
 Provider contracts: [Gemini structured output](https://ai.google.dev/gemini-api/docs/structured-output), [Supabase server-verified users](https://supabase.com/docs/reference/javascript/auth-getuser), [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys).
+
+Group audio uploads and the standalone transcription endpoint share
+`app/services/transcription.py`. Both use `GEMINI_TRANSCRIPTION_MODEL` followed by
+`GEMINI_FALLBACK_MODELS`; `GEMINI_MODEL` is reserved for newspaper generation. Dedicated
+transcription responses are read from `audio_transcription.text`. If transcription fails,
+the group response retains its saved audio reference and includes a safe provider error
+for the frontend to display alongside manual text entry.

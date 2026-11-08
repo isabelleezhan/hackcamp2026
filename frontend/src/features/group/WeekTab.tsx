@@ -1,45 +1,378 @@
-import Placeholder from '../../components/Placeholder'
-import { deadlineLabel, timeUntil } from '../../lib/time'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
+import { card, primary, secondary, subtitle } from '../../components/ui'
+import { api, ApiError } from '../../lib/api'
+import { approximateLocation } from '../../lib/location'
+import { deadlineLabel, shortStamp, timeUntil } from '../../lib/time'
+import type { Period, PublishResult, Reflection } from '../../lib/types'
+import { useProfile } from '../account/context'
 import { useGroup } from './context'
+import NoteComposer, { type NoteInput } from './NoteComposer'
+import { clock } from './useRecorder'
 
-/** /groups/:groupId/week: write and record this week's notes; organizers publish. */
+const explain = (error: unknown) =>
+  error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+
+/** Key the working draft to the group and week so it cannot be saved into another week. */
 export default function WeekTab() {
-  const { group, period, isOrganizer } = useGroup()
-  return (
-    <Placeholder
-      title="This week"
-      ticket="FE-2 and FE-6"
-      file="frontend/src/features/group/WeekTab.tsx"
-      purpose={
-        period
-          ? `Your notes for this week. The week closes ${deadlineLabel(period.deadline_at, group.timezone)} (in ${timeUntil(period.deadline_at)}).`
-          : 'Your notes for this week.'
+  const { group, period, refresh } = useGroup()
+  if (!period)
+    return (
+      <section className={`${card} grid gap-3 p-4`}>
+        <h2 className="text-xl font-bold">This week</h2>
+        <p>The current week is not available. Refresh to check for the next week.</p>
+        <button type="button" className={secondary} onClick={() => void refresh()}>
+          Refresh week
+        </button>
+      </section>
+    )
+  return <WeekContent key={`${group.id}:${period.id}`} period={period} />
+}
+
+function WeekContent({ period }: { period: Period }) {
+  const { group, isOrganizer, refresh } = useGroup()
+  const { profile } = useProfile()
+  const navigate = useNavigate()
+  const [notes, setNotes] = useState<Reflection[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [consent, setConsent] = useState(false)
+  const [editing, setEditing] = useState<Reflection | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [confirmPublish, setConfirmPublish] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [composing, setComposing] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [now, setNow] = useState(Date.now)
+  const [serverClosed, setServerClosed] = useState(false)
+  const actionInFlight = useRef(false)
+  const loadSequence = useRef(0)
+  const listUrl = `/groups/${group.id}/periods/${period.id}/reflections`
+  const closed = serverClosed || Boolean(period.closed_at) || now >= new Date(period.deadline_at).getTime()
+  const totalAudio = notes.reduce((sum, note) => sum + (note.audio_duration_seconds ?? 0), 0)
+  const canAdd = !closed && notes.length < 30
+
+  const load = useCallback(() => {
+    const sequence = ++loadSequence.current
+    return api<Reflection[]>(listUrl)
+      .then((result) => {
+        if (sequence !== loadSequence.current) return
+        setNotes(result)
+        setLoadError(null)
+      })
+      .catch((error: unknown) => {
+        if (sequence === loadSequence.current) setLoadError(explain(error))
+      })
+      .finally(() => {
+        if (sequence === loadSequence.current) setLoading(false)
+      })
+  }, [listUrl])
+
+  useEffect(() => {
+    void load()
+    return () => {
+      loadSequence.current += 1
+    }
+  }, [load])
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  async function save(data: NoteInput) {
+    if (actionInFlight.current) throw new Error('Another change is still being saved.')
+    if (Date.now() >= new Date(period.deadline_at).getTime() || period.closed_at) {
+      setNow(Date.now())
+      throw new Error('This week has closed. Refresh the week before adding another note.')
+    }
+    actionInFlight.current = true
+    setBusy(true)
+    setActionError(null)
+    setNotice(null)
+    try {
+      let location = editing
+        ? { city: editing.city, lat: editing.lat, lng: editing.lng }
+        : {
+            city: profile?.city ?? null,
+            lat: profile?.location_mode === 'auto' ? profile.lat : null,
+            lng: profile?.location_mode === 'auto' ? profile.lng : null,
+          }
+      let locationFallback = false
+      if (!editing && profile?.location_mode === 'auto') {
+        try {
+          location = await approximateLocation()
+        } catch {
+          locationFallback = true
+        }
       }
-      todo={[
-        'Prompt chips (Highlight, Hard part, Proud of, Next week) and a typed note, up to 2,000 characters with a counter.',
-        'Record a voice note, up to 3 minutes (hint at 2:30, stops at 3:00), or upload an audio file. Show the transcript to review and edit before saving.',
-        'Before the first note: "Notes are shared with everyone in this group and read by AI to write the paper." Agreeing sets ai_consent: true.',
-        'Attach where the note was written: if the profile uses automatic location, call approximateLocation() on save; otherwise send profile.city.',
-        'List your notes this week (time, city, voice length), each with Edit and Delete while the week is open.',
-        'Show the 429 weekly-limit message from the API (30 notes or 30 minutes of audio).',
-        `Organizers only${isOrganizer ? ' (that’s you)' : ''}: "End week & publish" with an in-page confirm, then open the new edition (it shows "Putting together…" until ready). An empty week returns status "empty": say nobody wrote.`,
-        'After saving, call refresh() from useGroup() so the People tab counts update.',
-      ]}
-      api={[
-        'GET  /groups/{id}/periods/{pid}/reflections',
-        'POST /groups/{id}/periods/{pid}/reflections  {body, status:"submitted", ai_consent:true, city, lat, lng, audio_path?, audio_duration_seconds?}',
-        'PUT  /groups/{id}/reflections/{rid}   (same body)',
-        'DELETE /groups/{id}/reflections/{rid}',
-        'POST /groups/{id}/audio   multipart: file, ai_consent=true  → {audio_path, audio_duration_seconds, transcript, status}',
-        'POST /groups/{id}/publish  {period_id}  → {edition_id, status: "queued" | "empty"}',
-      ]}
-      ready={[
-        'useRecorder() in features/group/useRecorder.ts (3-minute MediaRecorder with auto-stop)',
-        'approximateLocation() in lib/location.ts',
-        'useGroup(): group, period, isOrganizer, meId, refresh()',
-        'Shared styles in components/ui.ts (input, primary, secondary, record, card)',
-        'Prototype of the whole flow: https://claude.ai/artifact/FaK1NSxn8AZmb5bbzddcWB',
-      ]}
-    />
+      const result = await api<Reflection>(
+        editing ? `/groups/${group.id}/reflections/${editing.id}` : listUrl,
+        {
+          method: editing ? 'PUT' : 'POST',
+          body: JSON.stringify({ ...data, ...location, status: 'submitted', ai_consent: consent }),
+        },
+      )
+      setNotes((previous) =>
+        editing ? previous.map((note) => (note.id === result.id ? result : note)) : [...previous, result],
+      )
+      setEditing(null)
+      setNotice(
+        locationFallback
+          ? 'Note saved using your last known city. Your current location was unavailable.'
+          : 'Note saved for this week.',
+      )
+      void refresh()
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && /closed/i.test(error.message))
+        setServerClosed(true)
+      throw error
+    } finally {
+      actionInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  async function remove(id: string) {
+    if (actionInFlight.current) return
+    actionInFlight.current = true
+    setBusy(true)
+    setActionError(null)
+    try {
+      await api(`/groups/${group.id}/reflections/${id}`, { method: 'DELETE' })
+      setNotes((previous) => previous.filter((note) => note.id !== id))
+      setDeleting(null)
+      setNotice('Note deleted.')
+      void refresh()
+    } catch (error) {
+      setActionError(explain(error))
+    } finally {
+      actionInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  async function publish() {
+    if (actionInFlight.current || composing || dirty) return
+    actionInFlight.current = true
+    setBusy(true)
+    setActionError(null)
+    try {
+      const result = await api<PublishResult>(`/groups/${group.id}/publish`, {
+        method: 'POST',
+        body: JSON.stringify({ period_id: period.id }),
+      })
+      // Navigate before refreshing the period: refreshing remounts this component.
+      if (result.edition_id) navigate(`/groups/${group.id}/editions/${result.edition_id}`)
+      else navigate(`/groups/${group.id}/paper`, { state: { emptyWeek: true } })
+      void refresh()
+    } catch (error) {
+      setActionError(explain(error))
+    } finally {
+      actionInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  const disabled = busy || composing
+  return (
+    <div className="grid gap-4 pb-4">
+      <header>
+        <h2 className="text-[24px] font-extrabold">This week</h2>
+        <p className={subtitle}>
+          {closed
+            ? 'This week is closed. Refresh to load the next week.'
+            : `Closes ${deadlineLabel(period.deadline_at, group.timezone)} (${timeUntil(period.deadline_at, now)} left).`}
+        </p>
+        <p className={`${subtitle} mt-1`}>
+          {notes.length}/30 notes | {clock(totalAudio)}/30:00 audio this week
+        </p>
+      </header>
+      {closed && (
+        <button type="button" className={secondary} onClick={() => void refresh()}>
+          Refresh week
+        </button>
+      )}
+      {notice && (
+        <p role="status" className="rounded-xl bg-accent-soft p-3 text-[14px]">
+          {notice}
+        </p>
+      )}
+      {actionError && (
+        <p role="alert" className="text-[14px] text-alert">
+          {actionError}
+        </p>
+      )}
+      <section className={`${card} grid gap-3 p-4`} aria-label="Your weekly notes">
+        <h3 className="text-[18px] font-bold">Your notes</h3>
+        <p className={subtitle}>
+          Only you can read or edit these notes before publication. The newspaper brings everyone's updates
+          together.
+        </p>
+        {loading ? (
+          <p role="status">Loading your notes...</p>
+        ) : loadError ? (
+          <div role="alert">
+            <p>{loadError}</p>
+            <button type="button" className={`${secondary} mt-2`} onClick={() => void load()}>
+              Retry loading notes
+            </button>
+          </div>
+        ) : notes.length === 0 ? (
+          <p className={subtitle}>No notes yet. Start with one small moment from your week.</p>
+        ) : (
+          <ol className="grid gap-3">
+            {notes.map((note, index) => (
+              <li
+                key={note.id}
+                className="rounded-xl border border-card-line bg-white/70 p-3"
+                aria-label={`Note ${index + 1}`}
+              >
+                <p className="mb-2 text-[12px] text-glass-muted">
+                  {shortStamp(note.recorded_at ?? note.updated_at, group.timezone)}
+                  {note.city ? ` | ${note.city}` : ''}
+                  {note.audio_duration_seconds ? ` | Voice ${clock(note.audio_duration_seconds)}` : ''}
+                  {note.status === 'draft' ? ' | Draft (not included in the paper)' : ' | Saved'}
+                </p>
+                <p className="whitespace-pre-wrap break-words text-[15px]">{note.body || 'Empty draft'}</p>
+                {!closed && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={secondary}
+                      disabled={disabled || dirty || editing !== null}
+                      onClick={() => {
+                        setEditing(note)
+                        setDeleting(null)
+                        setActionError(null)
+                        setNotice(null)
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={secondary}
+                      disabled={disabled || editing !== null || dirty}
+                      onClick={() => {
+                        setDeleting(note.id)
+                        setActionError(null)
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+                {deleting === note.id && (
+                  <div className="mt-3 grid gap-2" role="group" aria-label="Confirm note deletion">
+                    <p>Delete this note? It will not be included in the paper.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={primary}
+                        disabled={disabled || closed}
+                        onClick={() => void remove(note.id)}
+                      >
+                        Confirm delete
+                      </button>
+                      <button
+                        type="button"
+                        className={secondary}
+                        disabled={disabled}
+                        onClick={() => setDeleting(null)}
+                      >
+                        Keep note
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      {!loading && !loadError && (canAdd || editing || dirty) && (
+        <div className="grid gap-3">
+          <label className="flex items-start gap-2 rounded-xl border border-card-line bg-card p-3 text-[13px]">
+            <input
+              type="checkbox"
+              checked={consent}
+              disabled={disabled || closed}
+              onChange={(event) => setConsent(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              I agree to sharing my notes in this group's newspaper and having AI read them to write it.
+              Original recordings stay private.
+            </span>
+          </label>
+          <NoteComposer
+            key={editing?.id ?? 'new'}
+            note={editing}
+            consent={consent}
+            disabled={busy || closed}
+            audioRemaining={Math.max(0, 1800 - totalAudio)}
+            onSave={save}
+            onBusyChange={setComposing}
+            onDirtyChange={setDirty}
+            onCancel={() => {
+              setEditing(null)
+              setDirty(false)
+            }}
+          />
+        </div>
+      )}
+      {!closed && !canAdd && !editing && (
+        <p role="status">You've reached 30 notes this week. You can still edit or delete your saved notes.</p>
+      )}
+      {isOrganizer && (
+        <section className={`${card} grid gap-3 p-4`} aria-label="Publish this week">
+          <h3 className="text-[18px] font-bold">Bring the week together</h3>
+          <p className={subtitle}>
+            Close this week and turn everyone's submitted notes into a newspaper. A new week opens
+            immediately.
+          </p>
+          {(dirty || composing) && (
+            <p className="text-[13px] text-alert">Save or discard your current note before publishing.</p>
+          )}
+          {!confirmPublish ? (
+            <button
+              type="button"
+              className={primary}
+              disabled={disabled || dirty || loading || Boolean(loadError)}
+              onClick={() => setConfirmPublish(true)}
+            >
+              End week &amp; publish
+            </button>
+          ) : (
+            <div className="grid gap-3" role="group" aria-label="Confirm publishing">
+              <p>
+                This closes the week for everyone. Saved notes will be locked. If nobody submitted a note, no
+                newspaper or email will be created.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={disabled || dirty}
+                  onClick={() => void publish()}
+                >
+                  {busy ? 'Starting publication...' : 'Confirm & publish'}
+                </button>
+                <button
+                  type="button"
+                  className={secondary}
+                  disabled={disabled}
+                  onClick={() => setConfirmPublish(false)}
+                >
+                  Keep week open
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
   )
 }

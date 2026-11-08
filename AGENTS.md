@@ -96,6 +96,9 @@ round avatar pins, frosted-glass sheet, record button).
 - Preserve names, facts and attribution. Never invent events, quotes, relationships or advice.
 - Handle hard news respectfully; don't force positive framing.
 - Include every contributor; keep the paper to a few minutes of reading however many notes there are.
+- Both group voice notes and standalone audio use the shared transcription service,
+  `GEMINI_TRANSCRIPTION_MODEL` and `GEMINI_FALLBACK_MODELS`. They do not use the newspaper
+  model. Transcription failures retain group audio and expose a safe actionable error.
 - Newspaper model comes from `GEMINI_MODEL` (default `gemini-3.8-flash`). Use structured output (`response_schema`) with Pydantic models.
 - The standalone audio prototype uses `GEMINI_TRANSCRIPTION_MODEL` (default `gemini-3.5-transcribe`) and configurable `GEMINI_FALLBACK_MODELS`. It is mounted at `POST /audio/transcribe`, requires a verified Supabase account, and returns `{text}` without storing audio.
 
@@ -185,6 +188,11 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   local sign-out, automatic session persistence/refresh and protected routes. Public config:
   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Account state resets between users.
   `/dev` and edition previews remain public.
+- **This week implemented:** typed note create/edit/delete, prompt chips, sharing/AI consent,
+  location on new notes, recorder/upload with transcript review and manual fallback, weekly
+  limits, and organizer publish confirmation. Existing edition UI handles generation/retry.
+  Failed requests retain drafts; closed weeks cannot be edited. Empty publishes create no paper/email.
+
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

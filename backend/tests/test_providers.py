@@ -82,8 +82,28 @@ async def test_incomplete_gemini_response_is_rejected(settings):
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         with pytest.raises(HTTPException) as error:
-            await Gemini(settings, client).transcribe(b"audio", "audio/wav")
+            await Gemini(settings, client).structured("Test rules", [{"text": "Test input"}], {})
         assert error.value.status_code == 502
+
+
+async def test_group_transcription_uses_shared_transcriber_with_group_settings(
+    settings, monkeypatch
+):
+    calls = []
+
+    async def transcribe(audio, mime, *, settings):
+        calls.append((audio, mime, settings))
+        return "A week with family."
+
+    monkeypatch.setattr("app.providers.transcribe_audio", transcribe)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: pytest.fail("Newspaper API must not be used"))
+    ) as client:
+        assert (
+            await Gemini(settings, client).transcribe(b"voice", "audio/webm")
+            == "A week with family."
+        )
+    assert calls == [(b"voice", "audio/webm", settings)]
 
 
 def test_email_escapes_source_text_and_links_to_authenticated_page(settings, newspaper):

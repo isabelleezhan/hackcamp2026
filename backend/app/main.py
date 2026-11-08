@@ -168,7 +168,9 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         # Checks connectivity and the backend migration without exposing configuration values.
         await store.rows("editions", admin=True, select="id,lease_token,next_attempt_at", limit="0")
         configured = {
-            "user_auth": bool(settings.supabase_url and settings.supabase_anon_key.get_secret_value()),
+            "user_auth": bool(
+                settings.supabase_url and settings.supabase_anon_key.get_secret_value()
+            ),
             "generation": bool(settings.gemini_api_key.get_secret_value()),
             "email": bool(settings.resend_api_key.get_secret_value() and settings.email_from),
             "worker": bool(settings.worker_secret.get_secret_value()),
@@ -421,12 +423,17 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         )
         try:
             transcript = await Gemini(settings, store.client).transcribe(audio, mime)
-        except (HTTPException, ValidationError):
+        except (HTTPException, ValidationError) as exc:
+            reason = (
+                exc.detail
+                if isinstance(exc, HTTPException)
+                else "The transcript exceeded the supported length."
+            )
             return AudioResult(
                 audio_path=path,
                 audio_duration_seconds=duration,
                 status="transcription_failed",
-                detail="Transcription failed. Enter text manually; your audio is saved.",
+                detail=f"{reason} Your audio is saved; enter text manually or try another recording.",
             )
         return AudioResult(
             audio_path=path,

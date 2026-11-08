@@ -233,6 +233,7 @@ def test_transcription_failure_keeps_audio_and_requires_manual_text(settings, mo
         )
         assert result.status_code == 200
         assert result.json()["status"] == "transcription_failed"
+        assert "Provider unavailable" in result.json()["detail"]
         assert result.json()["audio_path"].startswith(f"{GROUP}/{OWNER}/")
 
 

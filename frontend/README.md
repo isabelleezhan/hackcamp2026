@@ -47,7 +47,7 @@ uses port 8000. Source: `mock/server.mjs`.
 | `/groups/:groupId` | **Group layout**: globe + frosted sheet + tab bar, loads group data once | `features/group/GroupLayout.tsx` | Built |
 | ↳ (index) | **People** tab: who wrote this week, local times | `features/group/PeopleTab.tsx` | Built |
 | ↳ `people/:userId` | A person: city, local time, their story from the latest paper | `features/group/PeopleTab.tsx` (`PersonView`) | Built |
-| ↳ `week` | **This week** tab: write/record notes, your notes, organizer publish | `features/group/WeekTab.tsx` | **Placeholder (FE-2, FE-6)** |
+| ↳ `week` | **This week** tab: write/record notes, your notes, organizer publish | `features/group/WeekTab.tsx` | Built |
 | ↳ `paper` | **Paper** tab: latest paper, In the app / Email | `features/group/PaperTab.tsx` | Built |
 | ↳ `editions` | **Issues** tab: all issues | `features/edition/EditionArchive.tsx` | Built |
 | ↳ `editions/:editionId` | One issue (the edition email links here) | `features/edition/EditionPage.tsx` | Built |
@@ -71,3 +71,16 @@ already exist. Replace the whole component when you build it.
 - Time helpers (`lib/time.ts`): `localTime`, `timeUntil`, `deadlineLabel`, `shortStamp`.
 - Styles: `components/ui.ts` (card, input, primary, secondary, record…), `Avatar`, `GlassPage`,
   colour tokens in `index.css` (`glass-*`, `card-*`, `accent`, `accent-text`, `record`, `ok`, `alert`).
+
+## Weekly notes
+
+The This week tab supports typed notes, editing/deletion until close, sharing/AI consent,
+voice recording or file upload, transcript review (including manual fallback), and organizer
+publishing. Typed notes allow 2,000 characters; voice transcripts allow 4,000. Recording stops
+at three minutes with a warning at 2:30. The server validates format/duration and enforces
+30 notes or 30 audio minutes per member/week. New notes attach approximate/manual location;
+editing preserves the note's original location. Failed saves keep the local draft.
+
+Publishing confirms the exact period ID before closing it and opens the edition's generation
+screen. Repeated clicks are blocked while a request is in flight. Empty periods explain that
+no edition/email was created. Navigation/reload discards unsaved drafts; save first.

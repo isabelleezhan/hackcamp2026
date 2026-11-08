@@ -1,4 +1,7 @@
+import asyncio
 import io
+import subprocess
+import sys
 import wave
 
 import pytest
@@ -41,3 +44,29 @@ async def test_invalid_uploads(audio, mime, status):
     with pytest.raises(HTTPException) as error:
         await inspect_audio(audio, mime, "ffprobe")
     assert error.value.status_code == status
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reload event-loop regression")
+def test_audio_probe_works_with_windows_selector_loop():
+    loop = asyncio.SelectorEventLoop()
+    try:
+        assert loop.run_until_complete(
+            inspect_audio(wav(), "audio/wav", "ffprobe")
+        ) == pytest.approx(1)
+    finally:
+        loop.close()
+
+
+async def test_missing_probe_returns_actionable_service_error():
+    with pytest.raises(HTTPException) as error:
+        await inspect_audio(wav(), "audio/wav", "missing-ffprobe-executable")
+    assert error.value.status_code == 503
+
+
+async def test_probe_timeout_is_exposed_to_route(monkeypatch):
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired("ffprobe", 15)
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    with pytest.raises(TimeoutError):
+        await inspect_audio(wav(), "audio/wav", "ffprobe")

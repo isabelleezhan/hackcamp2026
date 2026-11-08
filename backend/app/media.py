@@ -1,6 +1,8 @@
 import asyncio
 import json
 import math
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -28,35 +30,54 @@ async def inspect_audio(data: bytes, mime: str, ffprobe_path: str) -> float:
         path = Path(directory) / "upload"
         path.write_bytes(data)
         try:
-            process = await asyncio.create_subprocess_exec(
-                ffprobe_path,
-                "-v",
-                "error",
-                "-protocol_whitelist",
-                "file,pipe",
-                "-format_whitelist",
-                "matroska,webm,ogg,mp3,mov,wav,aac",
-                "-show_entries",
-                "stream=codec_type,codec_name:format=format_name,duration:packet=pts_time,duration_time",
-                "-show_packets",
-                "-of",
-                "json",
-                str(path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # Uvicorn --reload on Windows uses SelectorEventLoop, which cannot
+            # launch asyncio subprocesses. A bounded worker keeps probing off
+            # the request loop and works on both Windows event-loop types.
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    subprocess.run,
+                    [
+                        ffprobe_path,
+                        "-v",
+                        "error",
+                        "-protocol_whitelist",
+                        "file,pipe",
+                        "-format_whitelist",
+                        "matroska,webm,ogg,mp3,mov,wav,aac",
+                        "-show_entries",
+                        "stream=codec_type,codec_name:format=format_name,duration:packet=pts_time,duration_time",
+                        "-show_packets",
+                        "-of",
+                        "json",
+                        str(path),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=15,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    check=False,
+                )
             )
-        except FileNotFoundError as exc:
-            raise HTTPException(503, "Audio validation is unavailable; use text input") from exc
-        try:
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=15)
-        except (TimeoutError, asyncio.CancelledError):
-            process.kill()
-            await process.communicate()
-            raise
+            try:
+                process = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Keep the temporary file alive until the worker closes it.
+                try:
+                    await task
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                raise
+        except OSError as exc:
+            raise HTTPException(
+                503,
+                "Audio validation is unavailable. Install ffprobe and set FFPROBE_PATH in backend/.env, then restart the backend. You can type your note instead.",
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("Audio validation timed out") from exc
         if process.returncode:
             raise HTTPException(422, "Audio could not be decoded")
         try:
-            info = json.loads(stdout)
+            info = json.loads(process.stdout)
             streams = info.get("streams", [])
             if not streams or any(s.get("codec_type") != "audio" for s in streams):
                 raise ValueError("Only audio streams are accepted")
