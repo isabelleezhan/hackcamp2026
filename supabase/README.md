@@ -8,6 +8,14 @@ Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql`,
 Aligns the schema with [AGENTS.md](../AGENTS.md). Apply it once, in the dashboard SQL editor, and
 deploy the matching backend at the same time; the old single-reflection route no longer exists.
 
+Live REST schema inspection also confirmed that the pre-0004 `reflections` table lacks both
+`audio_path` and `audio_duration_seconds`; 0004 adds these when absent before applying audio limits.
+The migration discovers the old single-column audio-duration and body checks by column dependency,
+so dashboard-assigned constraint names work too. If an earlier attempt failed because a constraint
+name was missing, run `ROLLBACK;` to clear any aborted editor transaction, then paste and run the
+entire updated migration. Its `BEGIN`/`COMMIT` keeps a failed full-file attempt from partially applying.
+Do not rerun it after a successful commit.
+
 - Many notes per person per week (the `unique(period_id, user_id)` rule is dropped).
 - Voice notes up to 180 s; transcripts of voice notes up to 4,000 characters (typed: 2,000).
 - `profiles`: `location_mode`, `city`, `lat`, `lng`, `location_updated_at`, `timezone`.

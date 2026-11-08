@@ -37,7 +37,12 @@ do $$ begin begin insert into public.reflections(group_id, period_id, user_id, b
 -- privacy before publishing
 select public.join_group_for(member_id, code) from t;
 insert into public.reflections(group_id, period_id, user_id, body, status, city) select gid, pid, member_id, 'London rain again.', 'submitted', 'London' from t;
+grant select on t to authenticated;
+select set_config('request.jwt.claim.sub', member_id::text, true) from t;
+set local role authenticated;
 select pg_temp.assert_ok((select count(*) = 1 from public.reflections), 'members see only their own notes before publishing');
+reset role;
+select set_config('request.jwt.claim.sub', owner_id::text, true) from t;
 select pg_temp.assert_ok((select count(*) = 2 from public.period_note_counts_for((select member_id from t), (select gid from t), (select pid from t))), 'counts visible for members');
 select pg_temp.assert_ok((select notes = 2 and audio_seconds = 170 from public.period_note_counts_for((select member_id from t), (select gid from t), (select pid from t)) c join t on c.user_id = t.owner_id), 'counts are correct');
 select pg_temp.assert_ok((select city = 'Vancouver' from public.profiles p join t on p.id = t.owner_id), 'members can see each other''s city');

@@ -24,6 +24,8 @@ The project URL is already filled in. Set `SUPABASE_SERVICE_ROLE_KEY` to its ser
 
 JWT validation allows 60 seconds of clock skew for time claims, while still checking the signature, issuer, audience and required claims. If the terminal logs `ImmatureSignatureError`, synchronize the backend machine's clock; tokens further in the future are rejected. For local sign-out, add `http://localhost:5173` to **Allowed Logout URLs** on the Auth0 application whose Client ID matches the frontend (not just the tenant settings).
 
+Auth0 userinfo profiles are cached for 30 seconds per access-token hash (at most 128 entries), with concurrent lookups coalesced. Every request still validates its JWT before using the cache. An `Unable to load the authenticated account` response indicates a userinfo lookup failure; the backend logs its HTTP status without the token or profile. Status 429 means Auth0 rate limiting.
+
 `../supabase/migrations/0001_init.sql`, `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql` are applied to project `ivjlummkprxwybqqfgor`. Migration `0003` was verified on November 7, 2026. Do not rerun these migrations on that project.
 
 ## Standalone email function (optional PDF attachment)

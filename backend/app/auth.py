@@ -1,5 +1,8 @@
+import asyncio
+import hashlib
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +32,41 @@ class Auth0Authenticator:
         self.client = client
         self._keys: dict[str, Any] = {}
         self._keys_expires_at = 0.0
+        self._profiles: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+        self._profile_lock = asyncio.Lock()
+
+    async def _userinfo(self, token: str, subject: str) -> dict[str, Any]:
+        # Only called after JWT validation. Hashes avoid retaining raw bearer tokens;
+        # the short-lived, bounded cache prevents concurrent page requests from
+        # exhausting Auth0's userinfo rate limit.
+        cache_key = hashlib.sha256(token.encode()).hexdigest()
+        async with self._profile_lock:
+            cached = self._profiles.get(cache_key)
+            if cached and cached[0] > time.monotonic():
+                self._profiles.move_to_end(cache_key)
+                return cached[1]
+            self._profiles.pop(cache_key, None)
+            try:
+                response = await self.client.get(
+                    f"{self.settings.auth0_issuer}userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                response.raise_for_status()
+                profile = response.json()
+                if not isinstance(profile, dict) or profile.get("sub") != subject:
+                    raise ValueError("Unexpected userinfo subject")
+            except (httpx.HTTPError, TypeError, ValueError) as exc:
+                status = (
+                    exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+                )
+                logger.warning("Auth0 userinfo failed: %s status=%s", type(exc).__name__, status)
+                raise HTTPException(503, "Unable to load the authenticated account") from exc
+            if profile.get("email") and profile.get("email_verified") is True:
+                self._profiles[cache_key] = (time.monotonic() + 30, profile)
+                while len(self._profiles) > 128:
+                    self._profiles.popitem(last=False)
+            return profile
 
     async def _key(self, token: str):
         try:
@@ -89,16 +127,7 @@ class Auth0Authenticator:
 
         profile = claims
         if not claims.get("email"):
-            try:
-                response = await self.client.get(
-                    f"{self.settings.auth0_issuer}userinfo",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
-                )
-                response.raise_for_status()
-                profile = {**claims, **response.json()}
-            except (httpx.HTTPError, TypeError, ValueError) as exc:
-                raise HTTPException(503, "Unable to load the authenticated account") from exc
+            profile = {**claims, **await self._userinfo(token, subject)}
 
         email = profile.get("email")
         if not isinstance(email, str) or not email or len(email) > 320:

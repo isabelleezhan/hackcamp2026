@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 
@@ -39,10 +40,15 @@ async def test_auth0_validates_jwt_and_loads_verified_email(settings):
         headers={"kid": "test-key"},
     )
 
-    def respond(request):
+    profile_calls = 0
+
+    async def respond(request):
+        nonlocal profile_calls
         if request.url.path == "/.well-known/jwks.json":
             return httpx.Response(200, json={"keys": [jwk]})
         if request.url.path == "/userinfo":
+            profile_calls += 1
+            await asyncio.sleep(0)
             assert request.headers["authorization"] == f"Bearer {token}"
             return httpx.Response(
                 200,
@@ -56,7 +62,24 @@ async def test_auth0_validates_jwt_and_loads_verified_email(settings):
         raise AssertionError(request.url)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
-        identity = await Auth0Authenticator(settings, client).authenticate(token)
+        auth = Auth0Authenticator(settings, client)
+        identities = await asyncio.gather(*(auth.authenticate(token) for _ in range(6)))
+        identity = identities[0]
+        assert all(item == identity for item in identities)
+        assert profile_calls == 1
+        # Expired profile entries cause a fresh upstream lookup.
+        for cache_key, (_, profile) in list(auth._profiles.items()):
+            auth._profiles[cache_key] = (0, profile)
+        await auth.authenticate(token)
+        assert profile_calls == 2
+        # A cached profile never bypasses token validation.
+        auth._keys["test-key"] = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        ).public_key()
+        with pytest.raises(HTTPException) as error:
+            await auth.authenticate(token)
+        assert error.value.status_code == 401
+        assert profile_calls == 2
     assert identity.subject == "auth0|person"
     assert identity.email == "person@example.invalid"
     assert identity.name == "Person"
@@ -103,6 +126,40 @@ async def test_auth0_rejects_wrong_audience(settings, caplog):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "status, subject", [(429, "auth0|person"), (401, "auth0|person"), (200, "auth0|other")]
+)
+async def test_userinfo_failures_are_not_cached_or_logged_with_secrets(
+    settings, caplog, status, subject
+):
+    calls = 0
+
+    def respond(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            status,
+            json={
+                "sub": subject,
+                "email": "private@example.invalid",
+                "email_verified": True,
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        auth = Auth0Authenticator(settings, client)
+        for _ in range(2):
+            with pytest.raises(HTTPException) as error:
+                await auth._userinfo("secret-token", "auth0|person")
+            assert error.value.status_code == 503
+        assert calls == 2
+        assert not auth._profiles
+    assert "Auth0 userinfo failed" in caplog.text
+    assert "secret-token" not in caplog.text
+    assert "private@example.invalid" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "overrides, accepted",
     [
         ({"iat": 30, "nbf": 30}, True),
@@ -125,10 +182,12 @@ async def test_auth0_clock_tolerance_preserves_validation(settings, overrides, a
         "email": "person@example.invalid",
         "email_verified": True,
     }
-    claims.update({
-        name: now + value if name in {"iat", "nbf", "exp"} else value
-        for name, value in overrides.items()
-    })
+    claims.update(
+        {
+            name: now + value if name in {"iat", "nbf", "exp"} else value
+            for name, value in overrides.items()
+        }
+    )
     token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test-key"})
 
     def no_network(request):

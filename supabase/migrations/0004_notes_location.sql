@@ -19,10 +19,32 @@ alter table public.reflections drop constraint reflections_period_id_user_id_key
 create index reflections_period_user on public.reflections (period_id, user_id);
 
 -- 2. Longer voice notes and transcripts -------------------------------------------------
-alter table public.reflections drop constraint reflections_audio_duration_seconds_check;
+-- The live text-only schema may not yet have either audio column.
+alter table public.reflections
+  add column if not exists audio_path text,
+  add column if not exists audio_duration_seconds numeric;
+alter table public.reflections add constraint reflections_audio_path_group_check
+  check (audio_path is null or audio_path like group_id::text || '/' || user_id::text || '/%');
+-- Dashboard-created databases may name these checks differently. Identify the
+-- old single-column limits by their column dependencies, not their names.
+-- Keep multi-column checks (submitted content, audio paths, etc.) intact.
+do $$
+declare old_check record;
+begin
+  for old_check in
+    select c.conname
+    from pg_catalog.pg_constraint c
+    join pg_catalog.pg_attribute a
+      on a.attrelid = c.conrelid and c.conkey = array[a.attnum]::smallint[]
+    where c.conrelid = 'public.reflections'::regclass
+      and c.contype = 'c'
+      and a.attname in ('audio_duration_seconds', 'body')
+  loop
+    execute format('alter table public.reflections drop constraint %I', old_check.conname);
+  end loop;
+end $$;
 alter table public.reflections add constraint reflections_audio_duration_seconds_check
   check (audio_duration_seconds > 0 and audio_duration_seconds <= 180);
-alter table public.reflections drop constraint reflections_body_check;
 alter table public.reflections add constraint reflections_body_check
   check (length(body) <= case when audio_path is null then 2000 else 4000 end);
 
@@ -85,7 +107,7 @@ language sql stable security definer set search_path='' as $$
 $$;
 
 -- 7. Voice clips readable only by their author ------------------------------------------
-drop policy audio_read on storage.objects;
+drop policy if exists audio_read on storage.objects;
 create policy audio_read on storage.objects for select to authenticated
   using (bucket_id = 'reflection-audio'
     and split_part(name, '/', 2) = auth.uid()::text
