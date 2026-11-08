@@ -3,10 +3,14 @@
 Applied to project `ivjlummkprxwybqqfgor` on November 7, 2026: `0001_init.sql`,
 `0002_backend_jobs.sql`, and `0003_auth0_accounts.sql`.
 
-## Pending: `0004_notes_location.sql` (NOT yet applied to the live project)
+## Applied: `0004_notes_location.sql` (verified November 8, 2026)
 
-Aligns the schema with [AGENTS.md](../AGENTS.md). Apply it once, in the dashboard SQL editor, and
-deploy the matching backend at the same time; the old single-reflection route no longer exists.
+Aligns the schema with [AGENTS.md](../AGENTS.md). The live schema now includes its audio/location, note-count and issue-number changes. Do not rerun it after a successful commit.
+
+## Pending: `0005_supabase_auth.sql`
+
+Apply the complete file once in the Supabase SQL Editor before restarting the migrated app.
+It preserves profiles and memberships while switching identity providers. See Authentication below.
 
 Live REST schema inspection also confirmed that the pre-0004 `reflections` table lacks both
 `audio_path` and `audio_duration_seconds`; 0004 adds these when absent before applying audio limits.
@@ -49,14 +53,15 @@ Project URL: https://ivjlummkprxwybqqfgor.supabase.co
 - Separate generation/delivery status and attempt/error fields. Unique delivery per edition/recipient.
 - Private `reflection-audio` bucket, 10 MB maximum, audio MIME allowlist. Upload paths: `<group_id>/<user_id>/<unique_filename>`. Only group members can read; only the named contributor can upload. Use new filenames rather than overwriting source audio.
 
-## Auth0 migration applied
+## Historical migration 0003 applied
 
-`migrations/0003_auth0_accounts.sql` was applied to project `ivjlummkprxwybqqfgor` on November 7, 2026. A read-only verification confirmed the Auth0 subject, verified email and location fields, removal of the Supabase Auth profile foreign key, and the three service-role account/group functions. Do not rerun it. The API uses the Supabase service role only after its own ownership/membership checks; Auth0 access tokens are never sent to Supabase.
+`migrations/0003_auth0_accounts.sql` was applied on November 7, 2026. Do not edit or rerun
+this historical migration. Its external-provider identity integration is superseded by 0005.
+The backend continues to enforce membership/ownership before using its service-role key.
 
 ## Backend database contract
 
-The frontend sends Auth0 access tokens only to FastAPI. After explicit route authorization,
-FastAPI calls Supabase with the service role. Auth0 access tokens are never sent to Supabase.
+The frontend sends Supabase sessions to FastAPI, which verifies them with Supabase Auth. After explicit route authorization, database calls use the service role.
 
 | RPC | Arguments | Result |
 | --- | --- | --- |
@@ -80,7 +85,21 @@ the contributor reviews and submits the text. Use short-lived signed URLs or aut
 
 ## Authentication
 
-Auth0 now owns signup, login, password handling, sessions and email verification. Supabase Auth is no longer used by the application after `0003_auth0_accounts.sql`; its SMTP and OTP templates do not need configuration. Resend configuration is still required separately for newspaper delivery.
+Supabase Auth owns signup, passwords, confirmation, recovery and sessions. Apply
+`migrations/0005_supabase_auth.sql` after 0004. It removes the retired identity column,
+adds `supabase_user_id`, preserves internal profile IDs/memberships, and updates RLS/RPCs
+to resolve the stable profile ID. The service-only `ensure_supabase_profile(uuid)` reads
+the confirmed identity from `auth.users`. Users cannot supply an email or claim another identity.
+A confirmed email can recover a matching legacy verified profile; passwords do not migrate.
+New profiles are provisioned on the first authenticated API call.
+
+Configure Email, Site URL, `/login` redirects and SMTP in Supabase Authentication.
+Use link-based Confirm Signup and Reset Password templates containing `{{ .ConfirmationURL }}`;
+`confirmation-email.html` is a signup template. The earlier `otp-email.html` code-only template
+does not match the new email/password confirmation flow.
+Backend Resend settings for newspapers are separate. Run `tests/verify_supabase_auth.sql`
+after 0005; it rolls back test data. Earlier verification scripts target their respective
+schema versions; `verify_notes.sql` targets 0004 before the legacy identity column is removed.
 
 ## Verification and boundaries
 

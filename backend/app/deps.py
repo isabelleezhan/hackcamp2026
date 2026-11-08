@@ -1,13 +1,13 @@
 """Shared dependency aliases for routes added to the original scaffold.
 
-Auth0 verifies each caller. Store access uses the server-side service role only after route-level
+Supabase Auth verifies each caller. Store access uses the server-side service role only after route-level
 ownership or membership checks.
 """
 
 import hmac
 from dataclasses import dataclass
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -36,40 +36,24 @@ async def current_user(
 ) -> Identity:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(401, "Sign in required", headers={"WWW-Authenticate": "Bearer"})
-    auth0_user = await request.app.state.authenticator.authenticate(credentials.credentials)
-    rows = await store.rows("profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}")
+    auth_user = await request.app.state.authenticator.authenticate(credentials.credentials)
+    rows = await store.rows("profiles", admin=True, supabase_user_id=f"eq.{auth_user.subject}")
     if not rows:
-        try:
-            rows = await store.write(
-                "POST",
-                "profiles",
-                {
-                    "id": str(uuid4()),
-                    "auth0_subject": auth0_user.subject,
-                    "email": auth0_user.email,
-                    "email_verified": auth0_user.email_verified,
-                    "display_name": auth0_user.name or "Member",
-                },
-                admin=True,
-            )
-        except HTTPException as exc:
-            if exc.status_code != 409:
-                raise
-            rows = await store.rows(
-                "profiles", admin=True, auth0_subject=f"eq.{auth0_user.subject}"
-            )
-    elif rows[0].get("email") != auth0_user.email or not rows[0].get("email_verified"):
+        rows = await store.rpc(
+            "ensure_supabase_profile", {"auth_user_id": auth_user.subject}, admin=True
+        )
+    elif rows[0].get("email") != auth_user.email or not rows[0].get("email_verified"):
         rows = await store.write(
             "PATCH",
             "profiles",
-            {"email": auth0_user.email, "email_verified": True},
+            {"email": auth_user.email, "email_verified": True},
             admin=True,
             id=f"eq.{rows[0]['id']}",
         )
     if not rows:
         raise HTTPException(503, "Unable to provision the authenticated account")
     return Identity(
-        UUID(rows[0]["id"]), auth0_user.subject, credentials.credentials, auth0_user.email
+        UUID(rows[0]["id"]), auth_user.subject, credentials.credentials, auth_user.email
     )
 
 

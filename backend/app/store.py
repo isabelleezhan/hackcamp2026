@@ -7,7 +7,7 @@ from app.config import Settings
 
 
 class Store:
-    """Supabase REST/storage client. Auth0-backed routes use admin access after authorization."""
+    """Supabase REST/storage client. Supabase Auth-backed routes use admin access after authorization."""
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
         self.settings = settings

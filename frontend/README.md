@@ -1,26 +1,24 @@
 # Frontend
 
-React 19 + Vite + TypeScript + Tailwind v4. Sign-in with Auth0; all data through the FastAPI backend.
+React 19 + Vite + TypeScript + Tailwind v4. Sign-in with Supabase Auth; all data through the FastAPI backend.
 Product decisions: [../AGENTS.md](../AGENTS.md). Look and feel: the prototype at
 https://claude.ai/artifact/FaK1NSxn8AZmb5bbzddcWB (light clay globe, white frosted sheet, marigold accent).
 
 ```bash
-cp .env.example .env.local   # Auth0 values + VITE_API_URL
+cp .env.example .env.local   # Supabase URL/key + VITE_API_URL
 npm install
 npm run dev                  # http://localhost:5173
 ```
 
-Opening a protected page while signed out redirects to `/login`. Without all three
-`VITE_AUTH0_*` values, that page displays configuration guidance and disables sign-in;
-the app does not call authenticated backend routes. Set the Auth0 SPA's domain and
-Client ID, plus an audience matching the backend's `AUTH0_AUDIENCE`, then restart Vite.
-The Client ID is public; never put an Auth0 client secret in a frontend environment file.
-In the Auth0 SPA's settings, add `http://localhost:5173` to Allowed Callback URLs,
-Allowed Logout URLs, and Allowed Web Origins. Save before testing Sign in. If Vite
-runs on another origin, register that exact origin as well.
-The audience must match the Auth0 API Identifier exactly, including `https://` if
-present. In that API's Application Access tab, grant this SPA User-Delegated Access.
-Auth0 callback errors are shown on the login page to help diagnose tenant settings.
+Opening a protected page while signed out redirects to `/login`. Configure
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local`, then restart Vite.
+Use only the public anon/publishable key here, never the service-role key.
+In Supabase Authentication, enable Email, set Site URL to `http://localhost:5173`,
+and allow `http://localhost:5173/login` as a redirect (plus production equivalents).
+Keep email confirmation enabled and configure SMTP for reliable confirmation/reset delivery.
+Login supports email/password, signup, confirmation resend, password reset and local sign-out.
+Existing users create a Supabase account; the same confirmed email restores their existing
+profile and memberships after migration 0005. Passwords do not transfer.
 Group pages need the backend running at `VITE_API_URL`; `/preview/edition` and `/dev`
 remain available without sign-in. If the backend rejects a profile request with 401,
 the app prompts the user to sign in again instead of showing a server-connectivity error.
@@ -34,7 +32,7 @@ npm run mock-api             # http://localhost:8000, the default VITE_API_URL
 It answers the same routes as the real backend, in memory: a seeded group ("The Long-Distance
 Weekly", you as organizer plus four friends, a published Issue 12), adding and editing notes, a
 fake voice transcript, "End week & publish" (builds a simple mock issue after a few seconds) and the
-email preview. Sign in with Auth0 as usual; the mock accepts any token and treats you as the
+email preview. Sign in with Supabase Auth as usual; the mock accepts any token and treats you as the
 seeded "You". Data resets when it restarts. Stop it before running the real backend, which also
 uses port 8000. Source: `mock/server.mjs`.
 
@@ -42,7 +40,7 @@ uses port 8000. Source: `mock/server.mjs`.
 
 | Route | Page | File | Status |
 |---|---|---|---|
-| `/login` | Sign in / create account (Auth0) | `pages/Login.tsx` | Built |
+| `/login` | Sign in / create account (Supabase Auth) | `pages/Login.tsx` | Built |
 | `/welcome` | First run: name + approximate location or typed city | `features/account/Welcome.tsx` | Built |
 | `/` | Your groups, start a group, join with a code | `features/groups/GroupsHome.tsx` | Built |
 | `/join?code=…` | Invite link: joins and opens the group | `features/groups/JoinPage.tsx` | Built |
@@ -67,7 +65,7 @@ already exist. Replace the whole component when you build it.
   (latest published edition), `refresh()`.
 - `useProfile()` (`features/account/context.ts`): your profile and `update(changes)` (PATCH /me).
 - `useAuth()` (`auth/context.ts`): `user`, `signIn`, `signUp`, `signOut`.
-- `api<T>(path, init)` (`lib/api.ts`): calls the backend with the Auth0 token; throws `ApiError` with `status`.
+- `api<T>(path, init)` (`lib/api.ts`): calls the backend with the Supabase Auth token; throws `ApiError` with `status`.
 - `useRecorder()` (`features/group/useRecorder.ts`): 3-minute voice recording with auto-stop.
 - `approximateLocation()` (`lib/location.ts`): browser location → city via `/geocode/reverse`.
 - Time helpers (`lib/time.ts`): `localTime`, `timeUntil`, `deadlineLabel`, `shortStamp`.

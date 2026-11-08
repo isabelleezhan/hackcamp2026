@@ -10,7 +10,7 @@ everyone is and emailed to anyone who wants it.
 
 ## Backend
 
-The FastAPI implementation is in [backend/](backend/README.md). It includes verified Auth0 authentication, group membership checks, reflections, reviewed audio transcription, newspaper generation, archives, and retry-safe email delivery.
+The FastAPI implementation is in [backend/](backend/README.md). It includes verified Supabase Auth authentication, group membership checks, reflections, reviewed audio transcription, newspaper generation, archives, and retry-safe email delivery.
 
 ```sh
 cd backend
@@ -34,9 +34,9 @@ Run backend checks from `backend/`:
 
 ## Supabase
 
-The reviewed schema is in [supabase/migrations/](supabase/migrations/). Migrations `0001` through `0003` are already present in project `ivjlummkprxwybqqfgor`; do not rerun them. Migration `0004_notes_location.sql` is pending and must be deployed with its matching backend. See [Supabase notes](supabase/README.md) for details.
+The reviewed schema is in [supabase/migrations/](supabase/migrations/). Migrations `0001` through `0003` are already present in project `ivjlummkprxwybqqfgor`; do not rerun them. Migration `0004_notes_location.sql` is also present in the live schema (verified November 8, 2026). Apply the pending `0005_supabase_auth.sql` before running the migrated backend. See [Supabase notes](supabase/README.md) for details.
 
-Auth0 owns application sign-in and email verification. Configure a verified Resend sender separately for edition emails.
+Supabase Auth owns application sign-in and email verification. Configure a verified Resend sender separately for edition emails.
 
 ## Try audio transcription locally (PowerShell)
 
@@ -51,7 +51,7 @@ cd backend
 
 Set `GEMINI_API_KEY` and optionally `GEMINI_TRANSCRIPTION_MODEL` in `backend/.env`. The key stays
 on the backend. Start the frontend in another terminal with `cd frontend` and
-`npm.cmd run dev`. The standalone `/audio/transcribe` endpoint requires a verified Auth0 access token.
+`npm.cmd run dev`. The standalone `/audio/transcribe` endpoint requires a verified Supabase Auth access token.
 Choose **Choose audio file**, then **Transcribe with
 Gemini**. Use a spoken MP3, WAV, M4A, OGG, or FLAC clip up to 3 minutes and 10 MB.
 The returned transcript is editable; this preview does not save a reflection.
@@ -95,17 +95,21 @@ npm install
 npm run dev
 ```
 
-The frontend signs in with Auth0 Universal Login (`@auth0/auth0-react`) and sends the Auth0 access token to FastAPI. It no longer talks to Supabase. Set `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID` and `VITE_AUTH0_AUDIENCE` in `frontend/.env.local` (see `frontend/.env.example`). Without them the app runs signed-out, which is enough for `/preview/edition`.
+The frontend signs in using Supabase Auth email/password. Configure `VITE_SUPABASE_URL`
+and `VITE_SUPABASE_ANON_KEY` in `frontend/.env.local`. Backend configuration uses the
+same `SUPABASE_URL`, `SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
 
-### One-time Auth0 setup
+### Supabase authentication setup
 
-1. **Applications → APIs → Create API.** Identifier = your audience (e.g. `https://api.community-newspaper.example`), signing algorithm RS256. Turn on **Allow Offline Access**. Put the identifier in `AUTH0_AUDIENCE` (backend) and `VITE_AUTH0_AUDIENCE` (frontend), and the tenant domain in `AUTH0_DOMAIN` / `VITE_AUTH0_DOMAIN`.
-2. **Applications → Create Application → Single Page Application.** Copy its Client ID to `VITE_AUTH0_CLIENT_ID`. Add `http://localhost:5173` (and the Vercel URL later) to **Allowed Callback URLs**, **Allowed Logout URLs** and **Allowed Web Origins**. Under Refresh Token Rotation, turn **Rotation** on (keeps people signed in after a reload, including in Safari).
-3. **Authentication → Database → Username-Password-Authentication** must be enabled for that application. Auth0 sends the verification email itself; the backend rejects accounts whose email isn't verified, and the app shows a "Check your email" screen until it is.
+1. Apply pending `0004_notes_location.sql`, then `0005_supabase_auth.sql`. Never rerun an already-applied migration.
+2. In Supabase Authentication, enable Email sign-in and keep email confirmation enabled.
+3. Set Site URL to `http://localhost:5173` and add `http://localhost:5173/login` to allowed redirects (plus production equivalents).
+4. Configure custom SMTP for confirmation and password-reset emails; backend Resend delivery settings are separate.
+5. Restart frontend/backend. Create a Supabase account and confirm its email. Passwords do not transfer; using the same confirmed email restores a legacy verified profile and memberships.
 
 ## Authorization and workers
 
-FastAPI verifies Auth0 access tokens, then uses the Supabase service role after explicit route-level ownership and membership checks. Only organizers can publish or retry; Auth0 tokens are never sent to Supabase.
+FastAPI verifies sessions with Supabase Auth, then uses the service role after explicit route-level membership/ownership checks. Only organizers can publish or retry.
 
 
 `POST /internal/tick` closes due periods and resumes queued or interrupted generation/delivery. Call it frequently from n8n with `X-Worker-Secret`; the scaffold `X-N8N-Secret` header is also supported. Weekly deadlines remain Sunday at 6 p.m. in each group's timezone. See [backend setup](backend/README.md) for configuration, deployment and retry details.

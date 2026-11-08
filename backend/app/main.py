@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from app.auth import Auth0Authenticator
+from app.auth import SupabaseAuthenticator
 from app.config import Settings, get_settings
 from app.deps import Identity, current_user, get_store
 from app.jobs import Jobs
@@ -133,7 +133,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         async with httpx.AsyncClient(timeout=30, transport=transport) as client:
             app.state.settings = settings
             app.state.store = Store(settings, client)
-            app.state.authenticator = authenticator or Auth0Authenticator(settings, client)
+            app.state.authenticator = authenticator or SupabaseAuthenticator(settings, client)
             app.state.geocoder = ReverseGeocoder(settings, client)
             app.state.jobs = Jobs(
                 settings, app.state.store, Gemini(settings, client), Resend(settings, client)
@@ -168,7 +168,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         # Checks connectivity and the backend migration without exposing configuration values.
         await store.rows("editions", admin=True, select="id,lease_token,next_attempt_at", limit="0")
         configured = {
-            "user_auth": bool(settings.auth0_domain and settings.auth0_audience),
+            "user_auth": bool(settings.supabase_url and settings.supabase_anon_key.get_secret_value()),
             "generation": bool(settings.gemini_api_key.get_secret_value()),
             "email": bool(settings.resend_api_key.get_secret_value() and settings.email_from),
             "worker": bool(settings.worker_secret.get_secret_value()),
@@ -183,7 +183,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         rows = await store.rows("profiles", admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        profile = {key: value for key, value in rows[0].items() if key != "auth0_subject"}
+        profile = {key: value for key, value in rows[0].items() if key != "supabase_user_id"}
         return {**profile, "email": user.email}
 
     @app.patch("/me", tags=["Accounts"])
@@ -194,7 +194,7 @@ def create_app(settings: Settings | None = None, transport=None, authenticator=N
         rows = await store.write("PATCH", "profiles", payload, admin=True, id=f"eq.{user.id}")
         if not rows:
             raise HTTPException(404, "Profile not found")
-        return {key: value for key, value in rows[0].items() if key != "auth0_subject"}
+        return {key: value for key, value in rows[0].items() if key != "supabase_user_id"}
 
     @app.get("/me/stats", tags=["Accounts"])
     async def account_stats(user: User, store: Database):

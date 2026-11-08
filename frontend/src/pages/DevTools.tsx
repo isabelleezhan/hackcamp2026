@@ -10,7 +10,7 @@ export default function DevTools() {
       <header className="border-b-4 border-double border-ink pb-3">
         <h1 className="font-display text-3xl font-black">Developer tools</h1>
         <p className="mt-1 text-sm text-stone-600">
-          {user ? `Signed in as ${user.email}.` : configured ? 'Not signed in.' : 'Sign-in not configured (no VITE_AUTH0_*).'}
+          {user ? `Signed in as ${user.email}.` : configured ? 'Not signed in.' : 'Sign-in not configured (no VITE_SUPABASE_*).'}
         </p>
       </header>
       <AudioTranscription />

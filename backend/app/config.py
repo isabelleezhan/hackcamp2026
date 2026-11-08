@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     supabase_url: str = "https://ivjlummkprxwybqqfgor.supabase.co"
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
-    auth0_domain: str = ""
-    auth0_audience: str = ""
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = "gemini-3.5-flash"
     gemini_transcription_model: str = "gemini-3.5-transcribe"
@@ -42,30 +40,6 @@ class Settings(BaseSettings):
     geocoder_user_agent: str = (
         "CommunityNewspaper/0.1 (HackCamp 2026; +https://github.com/isabelleezhan/hackcamp2026)"
     )
-
-    @property
-    def auth0_issuer(self) -> str:
-        return f"https://{self.auth0_domain}/"
-
-    @field_validator("auth0_domain")
-    @classmethod
-    def valid_auth0_domain(cls, value: str) -> str:
-        from urllib.parse import urlsplit
-
-        value = value.strip().removeprefix("https://").rstrip("/")
-        if value:
-            parts = urlsplit(f"https://{value}")
-            if (
-                not parts.hostname
-                or parts.port
-                or parts.username
-                or parts.password
-                or parts.path not in {"", "/"}
-                or parts.query
-                or parts.fragment
-            ):
-                raise ValueError("Expected an Auth0 tenant domain without a scheme or path")
-        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -19,8 +19,7 @@ round avatar pins, frosted-glass sheet, record button).
 ## Workflow
 
 ### 1. Accounts
-- Each person has **their own account: email + password** via Auth0 Universal Login ("Continue
-  with Google" may be added later). FastAPI validates Auth0 API access tokens and provisions a
+- Each person has **their own account: email + password** via Supabase Auth email/password. FastAPI validates Supabase sessions and provisions a
   stable internal UUID profile in Supabase Postgres on first use. Email verification is required.
 - First sign-in: set a **display name**.
 - **Location:** the app asks to share *approximate* location.
@@ -87,8 +86,7 @@ round avatar pins, frosted-glass sheet, record button).
 - On the globe the issue **"lands"**: pins light up and tapping someone shows this week's story.
 
 ### 6. Access rules (enforce in every route)
-- Only group members can read a group's notes, editions, audio and member locations. Auth0 tokens
-  are not Supabase sessions; the backend uses the service-role key, which **bypasses RLS**, so
+- Only group members can read a group's notes, editions, audio and member locations. The backend uses the service-role key, which **bypasses RLS**, so
   **every route must check membership or ownership itself before accessing data**.
 - A join code lets you join; it doesn't let you read anything without joining.
 - Only organizers can publish manually.
@@ -99,7 +97,7 @@ round avatar pins, frosted-glass sheet, record button).
 - Handle hard news respectfully; don't force positive framing.
 - Include every contributor; keep the paper to a few minutes of reading however many notes there are.
 - Newspaper model comes from `GEMINI_MODEL` (default `gemini-3.8-flash`). Use structured output (`response_schema`) with Pydantic models.
-- The standalone audio prototype uses `GEMINI_TRANSCRIPTION_MODEL` (default `gemini-3.5-transcribe`) and configurable `GEMINI_FALLBACK_MODELS`. It is mounted at `POST /audio/transcribe`, requires a verified Auth0 account, and returns `{text}` without storing audio.
+- The standalone audio prototype uses `GEMINI_TRANSCRIPTION_MODEL` (default `gemini-3.5-transcribe`) and configurable `GEMINI_FALLBACK_MODELS`. It is mounted at `POST /audio/transcribe`, requires a verified Supabase account, and returns `{text}` without storing audio.
 
 ## Edition content shape (stored in `editions.content`)
 ```json
@@ -123,13 +121,13 @@ Give the model short ids (`N1`, `N2`, …) in the prompt, then map them back to 
 | Globe | `react-globe.gl` + `three` (Earth textures from `three-globe/example/img`, served locally) | `frontend/` (to build) |
 | Backend | FastAPI, Pydantic, supabase-py (service role) | `backend/app/` |
 | DB/Storage | Supabase | `supabase/migrations/` |
-| Authentication | Auth0 Universal Login + JWT API access tokens | `backend/app/auth.py` |
+| Authentication | Supabase Auth email/password + session tokens | `backend/app/auth.py` |
 | AI | Gemini (`google-genai`) for transcription and newspaper | `backend/app/services/` (to build) |
 | Automation | n8n Cloud: weekly trigger and delivery | `n8n/` (to build) |
 | Email | Resend | backend |
 | Hosting | Vercel (frontend), Render (backend), n8n Cloud | |
 
-Key backend pieces: `auth.py` (Auth0 JWT verification), `main.py` (routes, `current_user`, membership
+Key backend pieces: `auth.py` (Supabase Auth session verification), `main.py` (routes, `current_user`, membership
 checks), `store.py` (server-side Supabase REST), `jobs.py` (generation and delivery workers), `providers.py` (Gemini,
 Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/README.md](backend/README.md).
 
@@ -163,27 +161,30 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
   routes that already exist, the code and that README are authoritative over the "Planned API" table above.
   It includes groups, membership checks, audio upload and transcription, publishing, generation,
   editions, retry-safe delivery, and `POST /internal/tick` for n8n (header `X-Worker-Secret`).
-  Auth0 JWTs identify callers; all Supabase access uses the service role after explicit route checks.
+  Supabase sessions identify callers; all Supabase access uses the service role after explicit route checks.
 - **Live schema** (`0001_init.sql` + `0002_backend_jobs.sql`) is applied to Supabase project
   `ivjlummkprxwybqqfgor`. `0003_auth0_accounts.sql` was applied and verified on November 7, 2026.
   Do not rerun these files; make later changes with a new forward migration.
-- **Accounts implemented:** Auth0 JWT validation, automatic Postgres profile provisioning,
+- **Accounts implemented:** Supabase Auth session validation, automatic Postgres profile provisioning,
   display name/location/timezone management, and account statistics.
-- **`0004_notes_location.sql` is written and tested locally but NOT yet applied to the live
-  project.** With it, the backend now supports many notes per week, 180 s voice notes, approximate
+- **`0004_notes_location.sql` is applied to the live project**, verified by schema metadata on November 8, 2026. With it, the backend now supports many notes per week, 180 s voice notes, approximate
   location and time zone, datelines, weekly limits, notes private until published, owner-only voice
   clips, 8-character join codes and issue numbers. Details: [supabase/README.md](supabase/README.md).
-  Apply it and deploy the matching backend together. Note routes are now
+  Keep the backend and schema versions matched. Note routes are now
   `POST …/periods/{pid}/reflections`, `PUT`/`DELETE …/reflections/{id}`, plus
   `GET …/periods/{pid}/note-counts`. The table is still called `reflections`; "notes" in this file
   means the same thing.
-- **Frontend:** Auth0 sign-in (`src/auth/`, `@auth0/auth0-react`; `useAuth()` gives user, signIn,
-  signUp, signOut; `RequireAuth` also blocks unverified emails). `api()` attaches the Auth0 access
-  token. Protected pages redirect signed-out users to `/login`; missing Auth0 settings show setup
-  guidance there without making authenticated API calls. `/dev` and edition previews remain public.
-  The frontend no longer uses Supabase. Built: edition page, archive and preview
-  (`src/features/edition/`), shared `Avatar` and `GlassPage`, Jerry's audio transcription. Still to
-  build: group page and join flow, note composer, publish button, globe home.
+- **Authentication migrated to Supabase:** `0005_supabase_auth.sql` is required after 0004
+  and has not been applied by this agent. Old runtime SDK/config is removed; historical
+  applied migrations remain immutable. `supabase_user_id` maps identities to stable profiles;
+  only confirmed Supabase emails can recover matching previously verified profiles.
+  Passwords do not transfer. Backend validates every session with `/auth/v1/user`.
+  RLS resolves stable IDs with `current_profile_id()`. Service-role data access still requires
+  route-level membership/ownership checks.
+- **Frontend:** Supabase email/password signup/login, confirmation resend, recovery,
+  local sign-out, automatic session persistence/refresh and protected routes. Public config:
+  `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Account state resets between users.
+  `/dev` and edition previews remain public.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

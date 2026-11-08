@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.auth import Auth0Identity
+from app.auth import SupabaseIdentity
 from app.main import create_app
 from app.providers import Gemini
 from tests.conftest import EDITION, GROUP, OWNER, PERIOD
@@ -18,12 +18,15 @@ def make_client(settings, handler=None, role="organizer", member=True):
     class FakeAuthenticator:
         async def authenticate(self, token):
             assert token == "user-session"
-            return Auth0Identity("auth0|owner", "owner@example.invalid", True, "Alex")
+            return SupabaseIdentity(
+                "11111111-1111-4111-8111-111111111111", "owner@example.invalid", True, "Alex"
+            )
 
     def respond(request):
         if (
             request.url.path == "/rest/v1/profiles"
-            and request.url.params.get("auth0_subject") == "eq.auth0|owner"
+            and request.url.params.get("supabase_user_id")
+            == "eq.11111111-1111-4111-8111-111111111111"
         ):
             assert request.headers["authorization"] == "Bearer test-service"
             return httpx.Response(
@@ -31,7 +34,7 @@ def make_client(settings, handler=None, role="organizer", member=True):
                 json=[
                     {
                         "id": OWNER,
-                        "auth0_subject": "auth0|owner",
+                        "supabase_user_id": "11111111-1111-4111-8111-111111111111",
                         "email": "owner@example.invalid",
                         "email_verified": True,
                         "display_name": "Alex",

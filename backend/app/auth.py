@@ -1,138 +1,55 @@
-import asyncio
-import hashlib
+"""Validate sessions with Supabase Auth, including current email confirmation state."""
+
 import logging
-import time
-from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any
+from uuid import UUID
 
 import httpx
-import jwt
 from fastapi import HTTPException
 
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
-JWT_CLOCK_SKEW_SECONDS = 60
 
 
 @dataclass(frozen=True)
-class Auth0Identity:
+class SupabaseIdentity:
     subject: str
     email: str
     email_verified: bool
     name: str
 
 
-class Auth0Authenticator:
-    """Validate Auth0 API access tokens and load the standard OIDC profile."""
-
+class SupabaseAuthenticator:
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
-        self.settings = settings
-        self.client = client
-        self._keys: dict[str, Any] = {}
-        self._keys_expires_at = 0.0
-        self._profiles: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
-        self._profile_lock = asyncio.Lock()
+        self.settings, self.client = settings, client
 
-    async def _userinfo(self, token: str, subject: str) -> dict[str, Any]:
-        # Only called after JWT validation. Hashes avoid retaining raw bearer tokens;
-        # the short-lived, bounded cache prevents concurrent page requests from
-        # exhausting Auth0's userinfo rate limit.
-        cache_key = hashlib.sha256(token.encode()).hexdigest()
-        async with self._profile_lock:
-            cached = self._profiles.get(cache_key)
-            if cached and cached[0] > time.monotonic():
-                self._profiles.move_to_end(cache_key)
-                return cached[1]
-            self._profiles.pop(cache_key, None)
-            try:
-                response = await self.client.get(
-                    f"{self.settings.auth0_issuer}userinfo",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
-                )
-                response.raise_for_status()
-                profile = response.json()
-                if not isinstance(profile, dict) or profile.get("sub") != subject:
-                    raise ValueError("Unexpected userinfo subject")
-            except (httpx.HTTPError, TypeError, ValueError) as exc:
-                status = (
-                    exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
-                )
-                logger.warning("Auth0 userinfo failed: %s status=%s", type(exc).__name__, status)
-                raise HTTPException(503, "Unable to load the authenticated account") from exc
-            if profile.get("email") and profile.get("email_verified") is True:
-                self._profiles[cache_key] = (time.monotonic() + 30, profile)
-                while len(self._profiles) > 128:
-                    self._profiles.popitem(last=False)
-            return profile
-
-    async def _key(self, token: str):
+    async def authenticate(self, token: str) -> SupabaseIdentity:
+        key = self.settings.supabase_anon_key.get_secret_value()
+        if not self.settings.supabase_url or not key:
+            raise HTTPException(503, "Supabase Auth is not configured")
         try:
-            header = jwt.get_unverified_header(token)
-            if header.get("alg") != "RS256" or not header.get("kid"):
-                raise ValueError
-            kid = header["kid"]
-        except (jwt.PyJWTError, ValueError, TypeError) as exc:
-            raise HTTPException(401, "Invalid access token") from exc
-
-        if kid not in self._keys or time.monotonic() >= self._keys_expires_at:
-            try:
-                response = await self.client.get(
-                    f"{self.settings.auth0_issuer}.well-known/jwks.json", timeout=10
-                )
-                response.raise_for_status()
-                keys = response.json().get("keys", [])
-                self._keys = {item["kid"]: jwt.PyJWK.from_dict(item).key for item in keys}
-                self._keys_expires_at = time.monotonic() + 3600
-            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            response = await self.client.get(
+                f"{self.settings.supabase_url}/auth/v1/user",
+                headers={"apikey": key, "Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            if response.status_code in {401, 403}:
                 raise HTTPException(
-                    503, "Authentication service is temporarily unavailable"
-                ) from exc
-        if kid not in self._keys:
-            self._keys_expires_at = 0
-            raise HTTPException(401, "Invalid access token")
-        return self._keys[kid]
-
-    async def authenticate(self, token: str) -> Auth0Identity:
-        if not self.settings.auth0_domain or not self.settings.auth0_audience:
-            raise HTTPException(503, "Auth0 is not configured")
-        key = await self._key(token)
-        try:
-            claims = jwt.decode(
-                token,
-                key,
-                algorithms=["RS256"],
-                audience=self.settings.auth0_audience,
-                issuer=self.settings.auth0_issuer,
-                leeway=JWT_CLOCK_SKEW_SECONDS,
-                options={"require": ["exp", "iat", "iss", "sub"]},
-            )
-        except jwt.PyJWTError as exc:
-            # Log validation categories and public configuration, never the bearer token
-            # or claims from a token whose signature/issuer have not been verified.
-            logger.warning(
-                "Auth0 token rejected: %s (expected issuer=%s audience=%s)",
-                type(exc).__name__,
-                self.settings.auth0_issuer,
-                self.settings.auth0_audience,
-            )
-            raise HTTPException(
-                401, "Invalid or expired access token", headers={"WWW-Authenticate": "Bearer"}
-            ) from exc
-        subject = claims.get("sub")
-        if not isinstance(subject, str) or not subject or len(subject) > 255:
-            raise HTTPException(401, "Invalid access token subject")
-
-        profile = claims
-        if not claims.get("email"):
-            profile = {**claims, **await self._userinfo(token, subject)}
-
-        email = profile.get("email")
-        if not isinstance(email, str) or not email or len(email) > 320:
-            raise HTTPException(403, "An email address is required for this account")
-        if profile.get("email_verified") is not True:
-            raise HTTPException(403, "Verify your email address before continuing")
-        name = profile.get("name") or profile.get("nickname") or email.split("@", 1)[0]
-        return Auth0Identity(subject, email.lower(), True, str(name)[:80])
+                    401, "Invalid or expired session", headers={"WWW-Authenticate": "Bearer"}
+                )
+            response.raise_for_status()
+            user = response.json()
+            subject = str(UUID(user["id"]))
+            email = user.get("email")
+            if not isinstance(email, str) or not email or len(email) > 320:
+                raise HTTPException(403, "An email address is required")
+            if not user.get("email_confirmed_at"):
+                raise HTTPException(403, "Verify your email address before continuing")
+            metadata = user.get("user_metadata") or {}
+            name = metadata.get("display_name") or metadata.get("name") or email.split("@", 1)[0]
+            return SupabaseIdentity(subject, email.lower(), True, str(name)[:80])
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            logger.warning("Supabase Auth lookup failed: %s status=%s", type(exc).__name__, status)
+            raise HTTPException(503, "Authentication service is temporarily unavailable") from exc

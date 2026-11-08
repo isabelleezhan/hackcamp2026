@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { AuthProvider, RequireAuth } from './auth/AuthProvider'
+import { useAuth } from './auth/context'
 import { ProfileProvider, RequireProfile } from './features/account/ProfileProvider'
 import Welcome from './features/account/Welcome'
 import IssuesTab from './features/edition/EditionArchive'
@@ -24,12 +25,17 @@ const signedIn = (page: ReactNode) => (
   </RequireAuth>
 )
 
+function AccountProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  return <ProfileProvider key={user?.id ?? 'signed-out'}>{children}</ProfileProvider>
+}
+
 /** Route map: see frontend/README.md. Keep the edition path in sync with the backend's email link. */
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ProfileProvider>
+        <AccountProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/welcome" element={<RequireAuth><Welcome /></RequireAuth>} />
@@ -51,7 +57,7 @@ export default function App() {
             )}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </ProfileProvider>
+        </AccountProvider>
       </AuthProvider>
     </BrowserRouter>
   )

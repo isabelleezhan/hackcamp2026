@@ -52,7 +52,7 @@ class AudioTests(unittest.TestCase):
     def test_authenticated_upload_returns_transcript(self):
         app.dependency_overrides[audio_user] = lambda: CurrentUser(
             id="00000000-0000-4000-8000-000000000001",
-            subject="auth0|audio-test",
+            subject="00000000-0000-4000-8000-000000000001",
             token="test-token",
             email="test@example.com",
         )
@@ -70,7 +70,7 @@ class AudioTests(unittest.TestCase):
         finally:
             app.dependency_overrides.clear()
 
-    def test_upload_requires_auth0_even_without_supabase_anon_key(self):
+    def test_upload_requires_supabase_even_without_supabase_anon_key(self):
         with TestClient(create_app(Settings(_env_file=None, supabase_anon_key=""))) as client:
             response = client.post(
                 "/audio/transcribe", files={"file": ("test.wav", wav_clip(), "audio/wav")}

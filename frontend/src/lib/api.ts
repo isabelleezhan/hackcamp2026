@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-// Set by <AuthProvider> once Auth0 is ready, so plain functions can attach the access token.
+// Set by <AuthProvider> once Supabase Auth is ready, so plain functions can attach the access token.
 type TokenGetter = () => Promise<string | null>
 let getToken: TokenGetter = async () => null
 
@@ -16,7 +16,7 @@ export function setTokenGetter(getter: TokenGetter) {
   getToken = getter
 }
 
-/** Fetch the backend with the signed-in user's Auth0 access token attached. */
+/** Fetch the backend with the signed-in user's Supabase Auth access token attached. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getToken()
   const headers = new Headers(init.headers)
