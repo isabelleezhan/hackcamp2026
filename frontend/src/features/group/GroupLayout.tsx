@@ -58,7 +58,9 @@ const MIN_W = 320
 const MAX_W = 680
 const clampW = (w: number) => Math.round(Math.min(Math.max(w, MIN_W), Math.min(MAX_W, innerWidth * 0.62)))
 const MIN_H = 30 // % of screen height on phones
-const MAX_H = 88
+const MAX_H = 100 // full screen
+const SNAP_FULL = 90 // let go above this and the sheet fills the screen
+const DEFAULT_H = 58
 const PEEK = 112 // px shown when collapsed on phones (header + tabs)
 
 /** Weekly news | People: the only two tabs in the sheet. */
@@ -103,7 +105,7 @@ export default function GroupLayout() {
   const [, setSeenTick] = useState(0)
 
   const [width, setWidth] = useStored('sheet:width', 400)
-  const [heightPct, setHeightPct] = useStored('sheet:height', 58)
+  const [heightPct, setHeightPct] = useStored('sheet:height', DEFAULT_H)
   const [collapsed, setCollapsed] = useStored('sheet:collapsed', false)
   const drag = useRef<{ startX: number; startY: number; start: number; moved: boolean } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -205,6 +207,7 @@ export default function GroupLayout() {
     drag.current = null
     setDragging(false)
     if (d && !d.moved && narrow) setCollapsed((c) => !c)
+    else if (d && narrow) setHeightPct((h) => (h >= SNAP_FULL ? MAX_H : h))
   }
   function resizeWithKeys(e: React.KeyboardEvent) {
     const step = e.shiftKey ? 48 : 16
@@ -219,6 +222,15 @@ export default function GroupLayout() {
       else return
     }
     e.preventDefault()
+  }
+
+  // Phones: full screen once the sheet reaches the top. The logo and newsletter rail step aside
+  // as soon as the sheet would run into them.
+  const full = narrow && !collapsed && heightPct >= MAX_H
+  const sheetCoversTop = narrow && !collapsed && ((100 - heightPct) / 100) * innerHeight < 130
+  const toggleFull = () => {
+    setCollapsed(false)
+    setHeightPct(full ? DEFAULT_H : MAX_H)
   }
 
   const sheetStyle = narrow
@@ -287,11 +299,11 @@ export default function GroupLayout() {
         inert={!narrow && collapsed}
         aria-hidden={!narrow && collapsed}
         style={sheetStyle}
-        className={`absolute z-10 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.18),0_2px_6px_rgba(36,56,92,.06)] backdrop-blur-[22px] backdrop-saturate-[1.4] motion-reduce:transition-none ${
+        className={`absolute z-10 flex flex-col overflow-clip border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.18),0_2px_6px_rgba(36,56,92,.06)] backdrop-blur-[22px] backdrop-saturate-[1.4] motion-reduce:transition-none ${
           dragging ? '' : 'transition-[height,translate,opacity] duration-500 ease-[cubic-bezier(.22,.8,.3,1)]'
         } ${!narrow && collapsed ? 'pointer-events-none -translate-x-[calc(100%+28px)] opacity-0' : ''} ${
           narrow
-            ? 'inset-x-0 bottom-0 rounded-t-[22px] border-b-0'
+            ? `inset-x-0 bottom-0 border-b-0 ${full ? 'rounded-none border-x-0 border-t-0 pt-[env(safe-area-inset-top,0px)]' : 'rounded-t-[22px]'}`
             : 'bottom-[14px] left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] rounded-[22px]'
         }`}
       >
@@ -317,6 +329,19 @@ export default function GroupLayout() {
             {period && <PeriodCountdown period={period} refresh={refresh} />}
           </div>
           <div className="flex shrink-0 items-center">
+            {narrow && (
+              <button
+                type="button"
+                onClick={toggleFull}
+                aria-label={full ? 'Exit full screen' : 'Full screen'}
+                aria-pressed={full}
+                className={iconButton}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={full ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'} />
+                </svg>
+              </button>
+            )}
             <Link to="settings" aria-label="Group settings" className={iconButton}>
               <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3" />
@@ -337,7 +362,7 @@ export default function GroupLayout() {
           </div>
         </header>
         <SheetTabs />
-        <div className={`min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
+        <div className={`relative min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
           {error ? (
             <div role="alert" className="rounded-[16px] border border-card-line bg-card p-4">
               <h2 className="text-[18px] font-bold">Group not available</h2>
@@ -380,6 +405,11 @@ export default function GroupLayout() {
       </section>
 
       {/* Logo, top right: back to the landing page. On phones the rail sits just below it. */}
+      <div
+        inert={sheetCoversTop}
+        aria-hidden={sheetCoversTop}
+        className={`transition-opacity duration-300 motion-reduce:transition-none ${sheetCoversTop ? 'pointer-events-none opacity-0' : ''}`}
+      >
       <BrandLink
         compact
         className={`absolute z-20 ${
@@ -389,6 +419,7 @@ export default function GroupLayout() {
         }`}
       />
       <GroupRail activeId={groupId} narrow={narrow} sheetTop={narrow ? (collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%`) : null} />
+      </div>
       {value && (
         <GroupContext.Provider value={value}>
           <ComposeFab narrow={narrow} lift={narrow && collapsed ? PEEK : 0} />

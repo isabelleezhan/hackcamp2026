@@ -96,7 +96,7 @@ export default function ComposeFab({ narrow, lift = 0 }: { narrow: boolean; /** 
           role="dialog"
           aria-modal="false"
           aria-label={mode === 'voice' ? 'Record a voice note' : 'Write a note'}
-          className={`compose-in absolute z-30 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.24)] backdrop-blur-[22px] backdrop-saturate-[1.4] ${
+          className={`compose-in absolute z-30 flex flex-col overflow-clip border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.24)] backdrop-blur-[22px] backdrop-saturate-[1.4] ${
             narrow
               ? 'inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top,0px)+10px)] rounded-t-[22px]'
               : 'bottom-[88px] right-[max(14px,env(safe-area-inset-right,0px))] max-h-[calc(100%-110px)] w-[min(460px,calc(100%-28px))] rounded-[22px]'
@@ -133,7 +133,7 @@ export default function ComposeFab({ narrow, lift = 0 }: { narrow: boolean; /** 
               </svg>
             </button>
           </header>
-          <div className={`min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
+          <div className={`relative min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
             <WeekTab mode={mode} />
           </div>
         </div>
