@@ -35,7 +35,7 @@ function Briefs({ title, items }: { title: string; items: Story[] }) {
   if (!items.length) return null
   return (
     <section className="grid gap-2 border-t border-card-line pt-6">
-      <h3 className="font-reading text-[20px] font-bold">{title}</h3>
+      <h3 className="font-display text-[21px] font-bold">{title}</h3>
       <ul className="grid list-disc gap-2 pl-[18px] font-reading text-[16.5px] leading-[1.6] marker:text-accent">
         {items.map((item) => (
           <li key={item.headline + item.text}>
@@ -95,12 +95,13 @@ export default function EditionView({ edition, groupName, timeZone, photos = {} 
   return (
     <article
       lang="en"
-      className="grid gap-6 rounded-[18px] border border-card-line bg-card px-5 pb-6 pt-5 text-card-ink shadow-[0_6px_18px_rgba(36,56,92,.06)] sm:px-7"
+      className="grid gap-6 rounded-[18px] border border-card-line bg-card px-4 pb-6 pt-5 text-card-ink shadow-[0_6px_18px_rgba(36,56,92,.06)]"
     >
       <header className="grid gap-3">
         <div className="grid gap-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <b className="font-reading text-[17px]">{groupName}</b>
+          {/* Stacked, so long group names never squeeze the date in a narrow sheet. */}
+          <div className="grid gap-0.5">
+            <b className="font-display text-[18px] font-bold leading-tight">{groupName}</b>
             <span className="text-[12.5px] text-card-muted">
               Issue {edition.issue_number}, {issueDate(edition.published_at ?? edition.created_at, timeZone)}
             </span>
@@ -115,7 +116,7 @@ export default function EditionView({ edition, groupName, timeZone, photos = {} 
             }}
           />
         </div>
-        <h1 className="font-reading text-[30px] font-bold leading-[1.12] tracking-[-0.01em] text-balance">
+        <h1 className="font-display text-[29px] font-bold leading-[1.12] text-balance">
           {smart(paper.headline)}
         </h1>
         <p className="font-reading text-[18px] italic leading-[1.6] text-card-ink/80">{smart(paper.introduction)}</p>
@@ -125,7 +126,7 @@ export default function EditionView({ edition, groupName, timeZone, photos = {} 
       {paper.member_updates.map((story) => (
         <section key={story.user_id} className="grid gap-2.5 border-t border-card-line pt-6">
           <Byline story={story} photo={photos[story.user_id]} />
-          <h2 className="font-reading text-[23px] font-bold leading-[1.2] text-balance">{smart(story.headline)}</h2>
+          <h2 className="font-display text-[24px] font-bold leading-[1.2] text-balance">{smart(story.headline)}</h2>
           <p className="font-reading text-[17px] leading-[1.7]">{smart(story.text)}</p>
         </section>
       ))}

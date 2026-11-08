@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 16 324 266" width="324" height="266" role="img" aria-label="MailBuds">
+  <!-- The "M" of the MailBuds logo: an envelope with a flap that forms the M, and three spark lines. -->
+  <g fill="none" stroke="#1f6fc5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Sparks -->
+    <path d="M17 101 L44 109 M40 50 L62 74 M91 32 L96 63" stroke-width="16"/>
+  </g>
+  <!-- Envelope paper: white above the flap, light blue below -->
+  <rect x="88" y="111" width="212" height="146" rx="18" fill="#ffffff"/>
+  <path d="M88 129 L194 207 L300 129 L300 239 Q300 257 282 257 L106 257 Q88 257 88 239 Z" fill="#e3f0ff"/>
+  <!-- Envelope outline and flap (the M) -->
+  <g fill="none" stroke="#1f6fc5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="88" y="111" width="212" height="146" rx="22" stroke-width="34"/>
+    <path d="M104 126 L194 192 L284 126" stroke-width="30"/>
+  </g>
+</svg>

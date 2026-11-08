@@ -4,9 +4,8 @@ import Avatar from '../../components/Avatar'
 import { api } from '../../lib/api'
 import type { GroupSummary } from '../../lib/types'
 
-const ITEM = 44 // avatar button size, px
-const GAP = 10
-const PAD = 8
+// Avatar button size, gap and padding in px: smaller on phones so the rail covers less globe.
+const SIZES = { wide: { ITEM: 44, GAP: 10, PAD: 8 }, narrow: { ITEM: 36, GAP: 6, PAD: 5 } }
 
 /**
  * Newsletter switcher: a vertical frosted-glass pill on the right edge. The active group sits on a
@@ -23,6 +22,7 @@ export default function GroupRail({
   sheetTop: string | null
 }) {
   const [groups, setGroups] = useState<GroupSummary[]>([])
+  const { ITEM, GAP, PAD } = SIZES[narrow ? 'narrow' : 'wide']
 
   useEffect(() => {
     api<GroupSummary[]>('/groups')
@@ -35,10 +35,10 @@ export default function GroupRail({
   return (
     <nav
       aria-label="Newsletters"
-      style={narrow && sheetTop ? { maxHeight: `calc(${sheetTop} - 28px)` } : undefined}
+      style={narrow && sheetTop ? { maxHeight: `calc(${sheetTop} - 82px)` } : undefined}
       className={`absolute z-20 flex flex-col rounded-[30px] border border-white/80 bg-white/45 shadow-[0_18px_44px_rgba(36,56,92,.20),inset_0_1px_0_rgba(255,255,255,.9)] backdrop-blur-[26px] backdrop-saturate-[1.8] ${
         narrow
-          ? 'right-[max(12px,env(safe-area-inset-right,0px))] top-[calc(env(safe-area-inset-top,0px)+12px)] overflow-hidden'
+          ? 'right-[max(12px,env(safe-area-inset-right,0px))] top-[calc(env(safe-area-inset-top,0px)+66px)] overflow-hidden'
           : 'right-[max(14px,env(safe-area-inset-right,0px))] top-1/2 -translate-y-1/2'
       }`}
     >
@@ -64,7 +64,7 @@ export default function GroupRail({
                 <Avatar
                   id={g.id}
                   name={g.name}
-                  className={`size-[38px]! text-[15px]! transition-[filter,opacity] duration-300 ${isActive ? '' : 'opacity-80 saturate-[.75] group-hover/item:opacity-100 group-hover/item:saturate-100'}`}
+                  className={`${narrow ? 'size-[30px]! text-[13px]!' : 'size-[38px]! text-[15px]!'} transition-[filter,opacity] duration-300 ${isActive ? '' : 'opacity-80 saturate-[.75] group-hover/item:opacity-100 group-hover/item:saturate-100'}`}
                 />
               </Link>
               {!narrow && (
@@ -80,7 +80,7 @@ export default function GroupRail({
         })}
         <li className="group/item relative">
           <Link
-            to="/"
+            to="/groups"
             aria-label="New or join a newsletter"
             className="grid place-items-center rounded-full border-[1.5px] border-dashed border-glass-text/30 text-glass-muted transition-[transform,color,border-color] duration-200 hover:scale-[1.07] hover:border-glass-text/50 hover:text-glass-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-text"
             style={{ width: ITEM, height: ITEM }}

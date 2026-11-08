@@ -13,7 +13,7 @@ export default function LandingPage() {
     <div className="sky min-h-screen font-system text-glass-text">
       <header className="landing-enter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-8 sm:py-6">
         <Link to="/" className="flex items-center gap-2.5 rounded focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent-text" aria-label="MailBuds home">
-          <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-accent text-sm font-extrabold text-white">M</span>
+          <img src="/brand/mailbuds-m.svg" alt="" width={38} height={31} draggable={false} />
           <span className="text-xl font-extrabold tracking-tight">MailBuds</span>
         </Link>
         <nav aria-label="Main navigation" className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">

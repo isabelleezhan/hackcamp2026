@@ -218,7 +218,7 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
     if (target && target.lat !== null && target.lng !== null) {
       const pov =
         sheet === 'bottom'
-          ? { lat: target.lat - 14, lng: target.lng, altitude: 2 }
+          ? { lat: target.lat, lng: target.lng, altitude: 1.6 }
           : { lat: target.lat, lng: target.lng - (sheet === 'left' ? 24 : 0), altitude: 1.5 }
       g.pointOfView(pov, reduceMotion ? 0 : 1100)
     }
@@ -242,7 +242,7 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
     g.pointOfView(
       start && start.lat !== null && start.lng !== null
         ? sheet === 'bottom'
-          ? { lat: start.lat - 12, lng: start.lng + 20, altitude: 2.6 }
+          ? { lat: start.lat, lng: start.lng + 10, altitude: 1.95 }
           : { lat: start.lat - 8, lng: start.lng - (sheet === 'left' ? 10 : 0), altitude: 2.2 }
         : { lat: 25, lng: -40, altitude: 2.4 },
     )

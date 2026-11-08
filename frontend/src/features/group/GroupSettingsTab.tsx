@@ -406,7 +406,7 @@ function LeaveOrDelete() {
       await api(action === 'leave' ? `/groups/${group.id}/leave` : `/groups/${group.id}`, {
         method: action === 'leave' ? 'POST' : 'DELETE',
       })
-      navigate('/', { replace: true })
+      navigate('/groups', { replace: true })
     } catch (cause) {
       setError(cause instanceof Error && cause.message ? cause.message : 'Something went wrong. Try again.')
       setBusy(false)

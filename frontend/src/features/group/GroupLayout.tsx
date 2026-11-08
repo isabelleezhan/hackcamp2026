@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useMatch, useNavigate, useParams } from 'react-r
 import { api, ApiError } from '../../lib/api'
 import type { Edition, Group, Member, NoteCount, Period } from '../../lib/types'
 import { useProfile } from '../account/context'
+import BrandLink from '../../components/BrandLink'
 import ComposeFab from './ComposeFab'
 import { GroupContext, type GroupState, type Person } from './context'
 import GroupRail from './GroupRail'
@@ -315,7 +316,7 @@ export default function GroupLayout() {
             <div role="alert" className="rounded-[16px] border border-card-line bg-card p-4">
               <h2 className="text-[18px] font-bold">Group not available</h2>
               <p className="mt-1 text-[15px] text-glass-text/80">{error}</p>
-              <Link to="/" className="mt-3 inline-block font-semibold text-accent-text">
+              <Link to="/groups" className="mt-3 inline-block font-semibold text-accent-text">
                 Go to your groups
               </Link>
             </div>
@@ -352,6 +353,15 @@ export default function GroupLayout() {
         )}
       </section>
 
+      {/* Logo, top right: back to the landing page. On phones the rail sits just below it. */}
+      <BrandLink
+        compact
+        className={`absolute z-20 ${
+          narrow
+            ? 'right-[max(12px,env(safe-area-inset-right,0px))] top-[calc(env(safe-area-inset-top,0px)+12px)]'
+            : 'right-[max(14px,env(safe-area-inset-right,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)]'
+        }`}
+      />
       <GroupRail activeId={groupId} narrow={narrow} sheetTop={narrow ? (collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%`) : null} />
       {value && (
         <GroupContext.Provider value={value}>

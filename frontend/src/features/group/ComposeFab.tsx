@@ -98,7 +98,7 @@ export default function ComposeFab({ narrow, lift = 0 }: { narrow: boolean; /** 
           aria-label={mode === 'voice' ? 'Record a voice note' : 'Write a note'}
           className={`compose-in absolute z-30 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.24)] backdrop-blur-[22px] backdrop-saturate-[1.4] ${
             narrow
-              ? 'inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top,0px)+40px)] rounded-t-[22px]'
+              ? 'inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top,0px)+10px)] rounded-t-[22px]'
               : 'bottom-[88px] right-[max(14px,env(safe-area-inset-right,0px))] max-h-[calc(100%-110px)] w-[min(460px,calc(100%-28px))] rounded-[22px]'
           }`}
         >
