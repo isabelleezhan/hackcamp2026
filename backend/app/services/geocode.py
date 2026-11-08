@@ -20,6 +20,8 @@ from app.config import Settings
 log = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+SEARCH_LIMIT = 6
 CACHE_SIZE = 5000
 MIN_INTERVAL_S = 1.0
 # Most specific place first. zoom=10 asks Nominatim for city-level results.
@@ -40,6 +42,7 @@ class ReverseGeocoder:
     def __init__(self, settings: Settings, client: httpx.AsyncClient):
         self.settings, self.client = settings, client
         self._cache: OrderedDict[tuple[float, float], str | None] = OrderedDict()
+        self._search_cache: OrderedDict[str, list[dict]] = OrderedDict()
         self._lock = asyncio.Lock()
         self._last_request = 0.0
 
@@ -85,3 +88,69 @@ class ReverseGeocoder:
             if len(self._cache) > CACHE_SIZE:
                 self._cache.popitem(last=False)
             return city
+
+    async def search(self, query: str) -> list[dict]:
+        """Cities matching typed text: [{city, label, lat, lng}] with lat/lng rounded to ~10 km.
+
+        Only the typed place name is sent to Nominatim. Empty on outage or rate limit.
+        """
+        key = " ".join(query.lower().split())[:120]
+        if len(key) < 2:
+            return []
+        if key in self._search_cache:
+            self._search_cache.move_to_end(key)
+            return self._search_cache[key]
+        async with self._lock:  # shares the 1 request/second budget with reverse lookups
+            if key in self._search_cache:
+                return self._search_cache[key]
+            wait = MIN_INTERVAL_S - (time.monotonic() - self._last_request)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_request = time.monotonic()
+            try:
+                response = await self.client.get(
+                    NOMINATIM_SEARCH_URL,
+                    params={
+                        "q": key,
+                        "format": "jsonv2",
+                        "addressdetails": 1,
+                        "limit": SEARCH_LIMIT,
+                        "featureType": "settlement",
+                        "accept-language": "en",
+                    },
+                    headers={"User-Agent": self.settings.geocoder_user_agent},
+                    timeout=8,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                log.warning("City search failed: %s", type(exc).__name__)
+                return []
+            results: list[dict] = []
+            seen: set[str] = set()
+            for item in data if isinstance(data, list) else []:
+                try:
+                    lat, lng = approximate(float(item["lat"]), float(item["lon"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                address = item.get("address") if isinstance(item.get("address"), dict) else {}
+                city = next((address[k] for k in PLACE_KEYS if address.get(k)), None) or item.get(
+                    "name"
+                )
+                if not city:
+                    continue
+                city = str(city)[:120]
+                parts = [city] + [
+                    str(address[k])
+                    for k in ("state", "country")
+                    if address.get(k) and address[k] != city
+                ]
+                label = ", ".join(parts)[:200]
+                if label in seen:
+                    continue
+                seen.add(label)
+                results.append({"city": city, "label": label, "lat": lat, "lng": lng})
+            self._search_cache[key] = results
+            if len(self._search_cache) > CACHE_SIZE:
+                self._search_cache.popitem(last=False)
+            return results

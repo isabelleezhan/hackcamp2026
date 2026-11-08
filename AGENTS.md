@@ -173,6 +173,7 @@ Resend), `media.py` (audio checks), `config.py` (env settings). See [backend/REA
 | `PATCH /groups/{id}` `{name}` | organizer | rename the newsletter |
 | `POST /groups/{id}/leave` | member | leave; your open-week notes are removed; last organizer can't leave while others remain |
 | `DELETE /groups/{id}` | organizer | delete the newsletter and everything in it, for everyone |
+| `GET /geocode/search?q=` | user | city suggestions for the location picker: `[{city, label, lat, lng}]`, lat/lng at 1 decimal |
 | `POST /groups/{id}/transcribe` (multipart audio) | member | → `{transcript, audio_path, audio_seconds}` |
 | `GET /groups/{id}/notes/mine` | member | my notes in the current period |
 | `POST /groups/{id}/notes` | member | add note (checks weekly limit and that the period is open) |
@@ -248,8 +249,16 @@ Schedule and owners: [TIMELINE.md](TIMELINE.md).
 
 - **Rename, leave and delete:** `0007_group_management.sql` adds `leave_group_for`,
   `delete_group_for` and an internal `delete_group_rows`, and lets the reflection guard allow deletes
-  only while a group is being deleted. **RPC presence verified on the live project November 8, 2026.**
-  Do not rerun 0007: a duplicate `leave_group_for` error means that function is already installed.
+  only while a group is being deleted. **Applied to the live project on November 8, 2026** (verified:
+  the functions exist and refuse unknown groups).
+
+- **Dropped parallel schedule:** a second schedule design (`publish_weekday`/`publish_hour`) was
+  applied to the live project on November 8, 2026 and then removed in favour of
+  `0008_publication_schedules.sql`. `0009_drop_release_schedule_columns.sql` drops its unused columns
+  (not yet applied; harmless until it is).
+- **Typed locations:** the city field is a picker backed by `GET /geocode/search` (Nominatim, same
+  1 request/second budget and cache). Picking a city saves its rounded coordinates, so manual
+  locations appear on the globe.
 
 ## Open decisions (ask the team; don't guess)
 1. Can friends see or hear notes **during** the week, or only in the published paper? Current

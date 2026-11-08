@@ -964,3 +964,4 @@ def test_non_members_cannot_rename_leave_or_delete(settings):
         assert client.patch(f"/groups/{GROUP}", headers=AUTH, json={"name": "x"}).status_code == 404
         assert client.post(f"/groups/{GROUP}/leave", headers=AUTH).status_code == 404
         assert client.delete(f"/groups/{GROUP}", headers=AUTH).status_code == 404
+

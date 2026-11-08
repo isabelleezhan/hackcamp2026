@@ -15,6 +15,28 @@ class CityResult(BaseModel):
     lng: float
 
 
+class CityMatch(BaseModel):
+    city: str
+    label: str
+    lat: float
+    lng: float
+
+
+@router.get("/search", response_model=list[CityMatch])
+async def search(
+    request: Request,
+    user: UserDep,
+    q: Annotated[str, Query(min_length=2, max_length=120)],
+) -> list[CityMatch]:
+    """Cities matching what someone typed, for the location picker.
+
+    lat/lng are rounded to 1 decimal (~10 km): store those with the city via PATCH /me.
+    Signed-in users only.
+    """
+    geocoder: ReverseGeocoder = request.app.state.geocoder
+    return [CityMatch(**match) for match in await geocoder.search(q)]
+
+
 @router.get("/reverse", response_model=CityResult)
 async def reverse(
     request: Request,

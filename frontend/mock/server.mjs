@@ -150,6 +150,19 @@ route('DELETE', '/me/avatar', () => {
   profiles[ME].avatar_url = null
   return profiles[ME]
 })
+route('GET', '/geocode/search', ({ query }) => {
+  const q = String(query.get('q') ?? '').trim().toLowerCase()
+  const places = [
+    ['Vancouver', 'British Columbia, Canada', 49.3, -123.1], ['Toronto', 'Ontario, Canada', 43.7, -79.4],
+    ['London', 'England, United Kingdom', 51.5, -0.1], ['London', 'Ontario, Canada', 43.0, -81.2],
+    ['Lisbon', 'Portugal', 38.7, -9.1], ['Tokyo', 'Japan', 35.7, 139.7], ['Seoul', 'South Korea', 37.6, 127.0],
+    ['Sydney', 'New South Wales, Australia', -33.9, 151.2], ['Mexico City', 'Mexico', 19.4, -99.1],
+    ['Bengaluru', 'Karnataka, India', 13.0, 77.6], ['Paris', 'France', 48.9, 2.4], ['Berlin', 'Germany', 52.5, 13.4],
+  ]
+  if (q.length < 2) return [422, { detail: 'Type at least 2 letters' }]
+  return places.filter(([city]) => city.toLowerCase().startsWith(q))
+    .map(([city, rest, lat, lng]) => ({ city, label: `${city}, ${rest}`, lat, lng }))
+})
 route('GET', '/geocode/reverse', ({ query }) => {
   const lat = Number(query.get('lat')), lng = Number(query.get('lng'))
   const known = [['Vancouver', 49.28, -123.12], ['Toronto', 43.65, -79.38], ['London', 51.51, -0.13], ['Lisbon', 38.72, -9.14], ['Tokyo', 35.68, 139.69]]
