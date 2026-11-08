@@ -103,6 +103,52 @@ async def test_incomplete_gemini_response_is_rejected(settings):
         assert error.value.status_code == 502
 
 
+async def test_newspaper_falls_back_when_primary_model_is_unavailable(settings, source, newspaper):
+    settings.gemini_model = "primary-model"
+    settings.gemini_fallback_models = "primary-model,fallback-model"
+    requested_models = []
+
+    def handle(request):
+        model = request.url.path.split("/")[-1].split(":")[0]
+        requested_models.append(model)
+        if model == "primary-model":
+            return httpx.Response(503, json={"error": {"message": "High demand"}})
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": json.dumps(newspaper)}]},
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        content = await Gemini(settings, client).newspaper([source])
+
+    assert content.headline == newspaper["headline"]
+    assert requested_models == ["primary-model", "fallback-model"]
+
+
+async def test_newspaper_does_not_fall_back_on_bad_request(settings):
+    settings.gemini_model = "primary-model"
+    settings.gemini_fallback_models = "fallback-model"
+    calls = 0
+
+    def handle(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(400, json={"error": {"message": "Invalid request"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(HTTPException):
+            await Gemini(settings, client).structured("rules", [{"text": "input"}], {})
+
+    assert calls == 1
+
+
 async def test_group_transcription_uses_shared_transcriber_with_group_settings(
     settings, monkeypatch
 ):

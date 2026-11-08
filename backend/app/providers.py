@@ -162,50 +162,64 @@ class Gemini:
         key = self.settings.gemini_api_key.get_secret_value()
         if not key:
             raise HTTPException(503, "Gemini is not configured; text reflections remain available")
-        try:
-            response = await self.client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{self.settings.gemini_model}:generateContent",
-                headers={"x-goog-api-key": key},
-                json={
-                    "systemInstruction": {"parts": [{"text": rules}]},
-                    "contents": [{"role": "user", "parts": parts}],
-                    "generationConfig": {
-                        "responseMimeType": "application/json",
-                        "responseJsonSchema": schema,
-                        "temperature": 0.2,
-                        "maxOutputTokens": 16384,
-                        # A newspaper is a bounded summarization task. Gemini 3
-                        # otherwise spends much of the request budget thinking.
-                        **(
-                            {"thinkingConfig": {"thinkingLevel": "LOW"}}
-                            if self.settings.gemini_model.startswith("gemini-3")
-                            else {}
-                        ),
-                    },
-                },
-                timeout=self.settings.gemini_generation_timeout_seconds,
+        models = list(
+            dict.fromkeys(
+                model.strip()
+                for model in [
+                    self.settings.gemini_model,
+                    *self.settings.gemini_fallback_models.split(","),
+                ]
+                if model.strip()
             )
-            if response.status_code != 200:
+        )
+        try:
+            for index, model in enumerate(models):
+                response = await self.client.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{model}:generateContent",
+                    headers={"x-goog-api-key": key},
+                    json={
+                        "systemInstruction": {"parts": [{"text": rules}]},
+                        "contents": [{"role": "user", "parts": parts}],
+                        "generationConfig": {
+                            "responseMimeType": "application/json",
+                            "responseJsonSchema": schema,
+                            "temperature": 0.2,
+                            "maxOutputTokens": 16384,
+                            # A newspaper is a bounded summarization task. Gemini 3
+                            # otherwise spends much of the request budget thinking.
+                            **(
+                                {"thinkingConfig": {"thinkingLevel": "LOW"}}
+                                if model.startswith("gemini-3")
+                                else {}
+                            ),
+                        },
+                    },
+                    timeout=self.settings.gemini_generation_timeout_seconds,
+                )
+                if response.status_code == 200:
+                    candidate = response.json()["candidates"][0]
+                    if candidate.get("finishReason") != "STOP":
+                        raise ValueError("Generation was incomplete or blocked")
+                    text = "".join(
+                        part.get("text", "") for part in candidate["content"]["parts"]
+                    )
+                    return json.loads(text)
+
                 # Log Google's reason (never the request, which contains private notes).
                 try:
                     reason = response.json().get("error", {}).get("message", "")
                 except ValueError:
                     reason = response.text[:200]
                 log.warning(
-                    "Gemini %s returned HTTP %s: %s",
-                    self.settings.gemini_model,
-                    response.status_code,
-                    reason[:300],
+                    "Gemini %s returned HTTP %s: %s", model, response.status_code, reason[:300]
                 )
-            response.raise_for_status()
-            candidate = response.json()["candidates"][0]
-            if candidate.get("finishReason") != "STOP":
-                raise ValueError("Generation was incomplete or blocked")
-            text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
-            return json.loads(text)
+                retryable = response.status_code in {404, 429, 500, 502, 503, 504}
+                if not retryable or index == len(models) - 1:
+                    response.raise_for_status()
+            raise AssertionError("unreachable")
         except httpx.TimeoutException as exc:
-            log.warning("Gemini generation timed out: model=%s", self.settings.gemini_model)
+            log.warning("Gemini generation timed out")
             raise HTTPException(
                 504, "Gemini generation timed out. Your notes are saved; try again shortly."
             ) from exc
