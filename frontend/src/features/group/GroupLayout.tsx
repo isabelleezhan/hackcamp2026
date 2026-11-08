@@ -1,10 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link, NavLink, Outlet, useMatch, useNavigate, useParams } from 'react-router'
 import { api, ApiError } from '../../lib/api'
 import { timeUntil } from '../../lib/time'
 import type { Edition, Group, Member, NoteCount, Period } from '../../lib/types'
 import { useProfile } from '../account/context'
+import ComposeFab from './ComposeFab'
 import { GroupContext, type GroupState, type Person } from './context'
+import GroupRail from './GroupRail'
 
 const GlobeView = lazy(() => import('../globe/GlobeView'))
 
@@ -20,48 +22,58 @@ function useNarrow() {
   return narrow
 }
 
-const TABS: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
-  {
-    to: '',
-    label: 'People',
-    end: true,
-    icon: <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 0c2.5 2.6 3.7 5.6 3.7 9S14.5 18.4 12 21m0-18C9.5 5.6 8.3 8.6 8.3 12s1.2 6.4 3.7 9M3.5 9h17M3.5 15h17" />,
-  },
-  { to: 'week', label: 'This week', icon: <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm6-3a6 6 0 0 1-12 0m6 6v3" /> },
-  { to: 'paper', label: 'Paper', icon: <path d="M5 4h11v16H6a2 2 0 0 1-2-2V5a1 1 0 0 1 1-1Zm11 4h3v10a2 2 0 0 1-2 2M8 8h5M8 12h5M8 16h3" /> },
-  { to: 'editions', label: 'Issues', icon: <path d="M4 6h16M4 12h16M4 18h10" /> },
-  { to: 'settings', label: 'Group', icon: <path d="M16 19v-1a4 4 0 0 0-8 0v1m4-8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 1a2.5 2.5 0 1 0 0-5m2 12v-1a3.5 3.5 0 0 0-2.5-3.4" /> },
-]
+/** A number remembered in this browser (sheet size, collapsed state). Storage may be unavailable. */
+function useStored<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key)
+      return raw === null ? initial : (JSON.parse(raw) as T)
+    } catch {
+      return initial
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      /* private mode: fine to forget */
+    }
+  }, [key, value])
+  return [value, setValue] as const
+}
 
-function TabBar() {
+const MIN_W = 320
+const MAX_W = 680
+const clampW = (w: number) => Math.round(Math.min(Math.max(w, MIN_W), Math.min(MAX_W, innerWidth * 0.62)))
+const MIN_H = 30 // % of screen height on phones
+const MAX_H = 88
+const PEEK = 112 // px shown when collapsed on phones (header + tabs)
+
+/** Weekly news | People: the only two tabs in the sheet. */
+function SheetTabs() {
+  const tab = ({ isActive }: { isActive: boolean }) =>
+    `rounded-[9px] px-3 py-1.5 text-center text-[14px] font-semibold transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text ${
+      isActive ? 'bg-white text-glass-text shadow-[0_1px_4px_rgba(36,56,92,.15)]' : 'text-glass-muted hover:text-glass-text'
+    }`
+  const peopleActive = useMatch('/groups/:groupId/people/*')
+  const settingsActive = useMatch('/groups/:groupId/settings')
   return (
-    <nav aria-label="Group" className="grid grid-cols-5 border-t border-glass-line bg-white/60 px-1 pb-[calc(env(safe-area-inset-bottom,0px)+4px)] pt-1">
-      {TABS.map((t) => (
-        <NavLink
-          key={t.label}
-          to={t.to}
-          end={t.end}
-          className={({ isActive }) =>
-            `grid justify-items-center gap-0.5 rounded-[12px] py-1.5 text-[11.5px] font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text ${
-              isActive ? 'text-accent-text' : 'text-glass-muted hover:text-glass-text'
-            }`
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={isActive ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
-                {t.icon}
-              </svg>
-              {t.label}
-            </>
-          )}
-        </NavLink>
-      ))}
+    <nav aria-label="Sections" className="mx-4 mb-2 grid flex-none grid-cols-2 gap-0.5 rounded-[12px] bg-chip p-0.5">
+      {/* Weekly news covers the index, past issues and single issues. */}
+      <NavLink to="" end className={() => tab({ isActive: !peopleActive && !settingsActive })}>
+        Weekly news
+      </NavLink>
+      <NavLink to="people" className={tab}>
+        People
+      </NavLink>
     </nav>
   )
 }
 
-/** /groups/:groupId/*: the globe behind, one frosted sheet with the active tab, and the tab bar. */
+const iconButton =
+  'grid size-9 shrink-0 place-items-center rounded-full text-glass-muted hover:bg-chip hover:text-glass-text focus-visible:outline-2 focus-visible:outline-accent-text'
+
+/** /groups/:groupId/*: globe behind; a resizable, collapsible frosted sheet; newsletter rail; compose button. */
 export default function GroupLayout() {
   const { groupId = '' } = useParams()
   const { profile } = useProfile()
@@ -76,6 +88,12 @@ export default function GroupLayout() {
   const [counts, setCounts] = useState<NoteCount[]>([])
   const [latest, setLatest] = useState<Edition | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const [width, setWidth] = useStored('sheet:width', 400)
+  const [heightPct, setHeightPct] = useStored('sheet:height', 58)
+  const [collapsed, setCollapsed] = useStored('sheet:collapsed', false)
+  const drag = useRef<{ startX: number; startY: number; start: number; moved: boolean } | null>(null)
+  const [dragging, setDragging] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -126,54 +144,148 @@ export default function GroupLayout() {
   const value = useMemo<GroupState | null>(
     () =>
       group && profile
-        ? {
-            group,
-            people,
-            meId: profile.id,
-            isOrganizer: group.membership?.role === 'organizer',
-            period,
-            latest,
-            refresh,
-          }
+        ? { group, people, meId: profile.id, isOrganizer: group.membership?.role === 'organizer', period, latest, refresh }
         : null,
     [group, profile, people, period, latest, refresh],
   )
 
-  const select = (id: string | null) => navigate(id ? `/groups/${groupId}/people/${id}` : `/groups/${groupId}`)
+  const select = (id: string | null) => navigate(id ? `/groups/${groupId}/people/${id}` : `/groups/${groupId}/people`)
+
+  // Drag the sheet's edge (desktop) or handle (phone) to resize; a tap on the phone handle toggles.
+  function startDrag(e: ReactPointerEvent) {
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    drag.current = { startX: e.clientX, startY: e.clientY, start: narrow ? heightPct : width, moved: false }
+  }
+  function onDrag(e: ReactPointerEvent) {
+    const d = drag.current
+    if (!d) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true
+    if (!d.moved) return
+    setDragging(true)
+    if (narrow) {
+      if (collapsed) setCollapsed(false)
+      setHeightPct(Math.round(Math.min(MAX_H, Math.max(MIN_H, d.start - (dy / innerHeight) * 100))))
+    } else {
+      setWidth(clampW(d.start + dx))
+    }
+  }
+  function endDrag() {
+    const d = drag.current
+    drag.current = null
+    setDragging(false)
+    if (d && !d.moved && narrow) setCollapsed((c) => !c)
+  }
+  function resizeWithKeys(e: React.KeyboardEvent) {
+    const step = e.shiftKey ? 48 : 16
+    if (narrow) {
+      if (e.key === 'ArrowUp') setHeightPct((h) => Math.min(MAX_H, h + 4))
+      else if (e.key === 'ArrowDown') setHeightPct((h) => Math.max(MIN_H, h - 4))
+      else if (e.key === 'Enter' || e.key === ' ') setCollapsed((c) => !c)
+      else return
+    } else {
+      if (e.key === 'ArrowRight') setWidth((w) => clampW(w + step))
+      else if (e.key === 'ArrowLeft') setWidth((w) => clampW(w - step))
+      else return
+    }
+    e.preventDefault()
+  }
+
+  const sheetStyle = narrow
+    ? { height: collapsed ? PEEK : `${heightPct}%` }
+    : { width: clampW(width) }
+  const globeBox = narrow
+    ? { top: 0, left: 0, right: 0, height: collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%` }
+    : // Beside the sheet (tucked a little under its glass), so the focused person is never hidden.
+      { top: 0, bottom: 0, right: 0, left: collapsed ? 0 : clampW(width) - 24 }
 
   return (
     <main className="sky fixed inset-0 overflow-hidden font-system text-[15px] leading-[1.45] text-glass-text antialiased">
       {value && (
-        <div className={narrow ? 'absolute inset-x-0 top-0 h-[46%]' : 'absolute inset-0'}>
+        <div className="absolute" style={globeBox}>
           <Suspense fallback={null}>
-            <GlobeView people={people} meId={value.meId} selectedId={selectedId} onSelect={select} sheet={narrow ? 'bottom' : 'left'} />
+            <GlobeView
+              people={people}
+              meId={value.meId}
+              selectedId={selectedId}
+              onSelect={select}
+              sheet={narrow ? 'bottom' : 'none'}
+            />
           </Suspense>
         </div>
       )}
 
+      {/* Collapsed on desktop: a small frosted tab brings the sheet back. */}
+      {!narrow && collapsed && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Show panel"
+          className="absolute left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] z-10 flex items-center gap-2 rounded-full border border-white/90 bg-glass py-2 pl-3 pr-4 text-[14px] font-semibold shadow-[0_12px_30px_rgba(36,56,92,.18)] backdrop-blur-[22px] backdrop-saturate-[1.4] hover:bg-white/90"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          {group?.name ?? 'Panel'}
+        </button>
+      )}
+
       <section
         aria-label={group?.name ?? 'Group'}
+        hidden={!narrow && collapsed}
+        style={sheetStyle}
         className={`absolute z-10 flex flex-col overflow-hidden border border-white/90 bg-glass shadow-[0_24px_60px_rgba(36,56,92,.18),0_2px_6px_rgba(36,56,92,.06)] backdrop-blur-[22px] backdrop-saturate-[1.4] ${
+          dragging ? '' : 'transition-[height] duration-300 ease-out'
+        } ${
           narrow
-            ? 'inset-x-0 bottom-0 h-[58%] rounded-t-[22px] border-b-0'
-            : 'bottom-[14px] left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] w-[400px] rounded-[22px]'
+            ? 'inset-x-0 bottom-0 rounded-t-[22px] border-b-0'
+            : 'bottom-[14px] left-[max(14px,env(safe-area-inset-left,0px))] top-[calc(env(safe-area-inset-top,0px)+14px)] rounded-[22px]'
         }`}
       >
-        {narrow && <div aria-hidden="true" className="mx-auto mt-2 h-[5px] w-9 flex-none rounded-full bg-glass-text/20" />}
-        <header className="flex flex-none items-center justify-between gap-3 px-4 pb-2 pt-3">
-          <div className="min-w-0">
-            <Link to="/" className="text-[13px] font-semibold text-accent-text">
-              ‹ All groups
-            </Link>
-            <h1 className="truncate text-[19px] font-extrabold tracking-[-0.01em]">{group?.name ?? ' '}</h1>
+        {narrow && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={collapsed ? 'Expand panel' : 'Resize or collapse panel'}
+            tabIndex={0}
+            onPointerDown={startDrag}
+            onPointerMove={onDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onKeyDown={resizeWithKeys}
+            className="flex h-6 flex-none cursor-row-resize touch-none items-center justify-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text"
+          >
+            <span className="h-[5px] w-10 rounded-full bg-glass-text/25" />
           </div>
-          {period && (
-            <p className="shrink-0 rounded-full bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-text">
-              Closes in {timeUntil(period.deadline_at)}
-            </p>
-          )}
+        )}
+        <header className={`flex flex-none items-center justify-between gap-2 px-4 pb-2 ${narrow ? 'pt-0' : 'pt-3'}`}>
+          <div className="min-w-0">
+            <h1 className="truncate text-[19px] font-extrabold tracking-[-0.01em]">{group?.name ?? ' '}</h1>
+            {period && <p className="text-[12.5px] font-semibold text-accent-text">Closes in {timeUntil(period.deadline_at)}</p>}
+          </div>
+          <div className="flex shrink-0 items-center">
+            <Link to="settings" aria-label="Group settings" className={iconButton}>
+              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+              </svg>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
+              aria-expanded={!collapsed}
+              className={iconButton}
+            >
+              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {narrow ? <path d={collapsed ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} /> : <path d="m15 6-6 6 6 6" />}
+              </svg>
+            </button>
+          </div>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-1">
+        <SheetTabs />
+        <div className={`min-h-0 flex-1 overflow-y-auto px-4 pt-1 ${narrow ? 'pb-28' : 'pb-5'}`}>
           {error ? (
             <div role="alert" className="rounded-[16px] border border-card-line bg-card p-4">
               <h2 className="text-[18px] font-bold">Group not available</h2>
@@ -192,8 +304,35 @@ export default function GroupLayout() {
             </GroupContext.Provider>
           )}
         </div>
-        <TabBar />
+        {!narrow && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            aria-valuenow={clampW(width)}
+            aria-valuemin={MIN_W}
+            aria-valuemax={MAX_W}
+            tabIndex={0}
+            onPointerDown={startDrag}
+            onPointerMove={onDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onKeyDown={resizeWithKeys}
+            onDoubleClick={() => setWidth(400)}
+            title="Drag to resize. Double-click to reset."
+            className="group absolute inset-y-6 right-0 w-3 cursor-col-resize touch-none focus-visible:outline-none"
+          >
+            <span className="absolute inset-y-[45%] right-1 w-1 rounded-full bg-glass-text/15 transition-colors group-hover:bg-accent group-focus-visible:bg-accent" />
+          </div>
+        )}
       </section>
+
+      <GroupRail activeId={groupId} narrow={narrow} sheetTop={narrow ? (collapsed ? `calc(100% - ${PEEK}px)` : `${100 - heightPct}%`) : null} />
+      {value && (
+        <GroupContext.Provider value={value}>
+          <ComposeFab narrow={narrow} />
+        </GroupContext.Provider>
+      )}
     </main>
   )
 }

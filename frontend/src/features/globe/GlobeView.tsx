@@ -14,10 +14,46 @@ type Props = {
   selectedId: string | null
   onSelect: (id: string | null) => void
   /** Where the sheet covers the globe, so the focused person stays visible. */
-  sheet: 'left' | 'bottom'
+  sheet: 'left' | 'bottom' | 'none'
 }
 
-type Pin = { id: string; lat: number; lng: number; person: Person }
+type Pin = { id: string; lat: number; lng: number; members: Person[] }
+
+const NEAR_KM = 250
+const MAX_AVATARS = 4
+
+function km(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const r = Math.PI / 180
+  const h =
+    Math.sin(((bLat - aLat) * r) / 2) ** 2 +
+    Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(((bLng - aLng) * r) / 2) ** 2
+  return 12742 * Math.asin(Math.sqrt(h))
+}
+
+/** Put people who are close together (same city, or neighbouring ones) on one pin. */
+function clusterPeople(people: Person[]): Pin[] {
+  const pins: Pin[] = []
+  for (const p of people) {
+    if (p.lat === null || p.lng === null) continue
+    const near = pins.find((c) => km(c.lat, c.lng, p.lat!, p.lng!) < NEAR_KM)
+    if (near) {
+      near.members.push(p)
+      const n = near.members.length
+      near.lat += (p.lat - near.lat) / n
+      near.lng += (p.lng - near.lng) / n
+    } else pins.push({ id: p.id, lat: p.lat, lng: p.lng, members: [p] })
+  }
+  return pins.map((c) => ({ ...c, id: c.members.map((m) => m.id).join('+') }))
+}
+
+function groupLabel(members: Person[], meId: string) {
+  const nameOf = (p: Person) => (p.id === meId ? 'You' : p.name)
+  if (members.length === 1) return nameOf(members[0])
+  const city = members[0].city
+  if (city && members.every((m) => m.city === city)) return `${members.length} in ${city}`
+  if (members.length === 2) return `${nameOf(members[0])} & ${nameOf(members[1])}`
+  return `${nameOf(members[0])} +${members.length - 1}`
+}
 type Feature = { id?: string; properties?: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }
 
 // Stylized "clay" globe, matching the Long-Distance Weekly prototype.
@@ -50,7 +86,7 @@ function useLand() {
 export default function GlobeView({ people, meId, selectedId, onSelect, sheet }: Props) {
   const ref = useRef<GlobeMethods | undefined>(undefined)
   const box = useRef<HTMLDivElement>(null)
-  const pinEls = useRef(new Map<string, HTMLButtonElement>())
+  const pinEls = useRef(new Map<string, { root: HTMLElement; av: HTMLElement; name: HTMLElement }>())
   const [size, setSize] = useState({ w: 0, h: 0 })
   const land = useLand()
   const material = useMemo(
@@ -81,32 +117,56 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
     }
   }, [])
 
-  const pins = useMemo<Pin[]>(
-    () => people.filter((p) => p.lat !== null && p.lng !== null).map((p) => ({ id: p.id, lat: p.lat!, lng: p.lng!, person: p })),
-    [people],
-  )
+  const pins = useMemo(() => clusterPeople(people), [people])
 
+  // One pin per place. People within ~250 km share a pin: their avatars sit side by side.
   const makePin = useCallback(
     (d: object) => {
-      const { person } = d as Pin
-      const [from, to] = gradientFor(person.id)
-      const b = document.createElement('button')
-      b.type = 'button'
-      b.tabIndex = -1 // keyboard users use the People list
-      b.className = 'globe-pin' + (person.notes ? '' : ' pending')
-      b.setAttribute('aria-label', `Open ${person.name}'s page`)
-      b.innerHTML = '<span class="inner"><span class="av"></span><span class="nub"></span><span class="name"></span></span>'
-      const av = b.querySelector('.av') as HTMLElement
-      av.textContent = person.id === meId ? 'Me' : initialOf(person.name)
-      av.style.background = `linear-gradient(160deg, ${from}, ${to})`
-      ;(b.querySelector('.name') as HTMLElement).textContent = person.id === meId ? 'You' : person.name
-      b.title = `${person.name}, ${person.city ?? ''} ${localTime(person.tz)}`.trim()
-      b.onclick = (e) => {
-        e.stopPropagation()
-        onSelectRef.current(person.id)
+      const { members } = d as Pin
+      const root = document.createElement('div')
+      root.className = 'globe-pin' + (members.length > 1 ? ' cluster' : '')
+      root.innerHTML = '<span class="inner"><span class="avs"></span><span class="nub"></span><span class="name"></span></span>'
+      const row = root.querySelector('.avs') as HTMLElement
+      const name = root.querySelector('.name') as HTMLElement
+      const label = groupLabel(members, meId)
+      name.textContent = label
+      const shown = members.length > MAX_AVATARS ? MAX_AVATARS - 1 : members.length
+      members.forEach((person, i) => {
+        const [from, to] = gradientFor(person.id)
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.tabIndex = -1 // keyboard users use the People list
+        b.className = 'av' + (person.notes ? '' : ' pending') + (i >= shown ? ' extra' : '')
+        b.style.background = `linear-gradient(160deg, ${from}, ${to})`
+        b.style.zIndex = String(members.length - i)
+        b.textContent = person.id === meId ? 'Me' : initialOf(person.name)
+        b.setAttribute('aria-label', `Open ${person.name}'s page`)
+        b.title = `${person.name}, ${person.city ?? ''} ${localTime(person.tz)}`.trim()
+        b.onclick = (e) => {
+          e.stopPropagation()
+          onSelectRef.current(person.id)
+        }
+        b.onmouseenter = () => (name.textContent = person.id === meId ? 'You' : person.name)
+        b.onmouseleave = () => (name.textContent = root.dataset.label ?? label)
+        row.append(b)
+        pinEls.current.set(person.id, { root, av: b, name })
+      })
+      if (shown < members.length) {
+        const more = document.createElement('button')
+        more.type = 'button'
+        more.tabIndex = -1
+        more.className = 'av more'
+        more.textContent = `+${members.length - shown}`
+        more.setAttribute('aria-label', `Show ${members.length - shown} more`)
+        more.onclick = (e) => {
+          e.stopPropagation()
+          root.classList.add('expanded')
+        }
+        row.append(more)
       }
-      pinEls.current.set(person.id, b)
-      return b
+      root.dataset.label = label
+      root.dataset.base = label
+      return root
     },
     [meId],
   )
@@ -123,7 +183,24 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
 
   // Fly to the selected person (offset so the sheet doesn't cover them); spin gently otherwise.
   useEffect(() => {
-    pinEls.current.forEach((el, id) => el.classList.toggle('sel', id === selectedId))
+    pinEls.current.forEach(({ root }) => root.classList.remove('sel'))
+    pinEls.current.forEach(({ root, av, name }, id) => {
+      const on = id === selectedId
+      av.classList.toggle('sel', on)
+      if (on) {
+        root.classList.add('sel')
+        // Open a crowded pin so the selected person is visible, and name them.
+        if (av.classList.contains('extra')) root.classList.add('expanded')
+        root.dataset.label = id === meId ? 'You' : (people.find((p) => p.id === id)?.name ?? '')
+        name.textContent = root.dataset.label
+      }
+    })
+    pinEls.current.forEach(({ root, name }) => {
+      if (!root.classList.contains('sel') && root.dataset.base) {
+        root.dataset.label = root.dataset.base
+        name.textContent = root.dataset.base
+      }
+    })
     const g = ref.current
     if (!g) return
     const controls = g.controls() as unknown as { autoRotate: boolean }
@@ -132,10 +209,10 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
       const pov =
         sheet === 'bottom'
           ? { lat: target.lat - 14, lng: target.lng, altitude: 2 }
-          : { lat: target.lat, lng: target.lng - 24, altitude: 1.5 }
+          : { lat: target.lat, lng: target.lng - (sheet === 'left' ? 24 : 0), altitude: 1.5 }
       g.pointOfView(pov, reduceMotion ? 0 : 1100)
     }
-  }, [selectedId, target, sheet])
+  }, [selectedId, target, sheet, people, meId, pins])
 
   function ready() {
     const g = ref.current
@@ -151,12 +228,12 @@ export default function GlobeView({ people, meId, selectedId, onSelect, sheet }:
     controls.addEventListener('start', () => {
       controls.autoRotate = false
     })
-    const start = me?.lat != null ? me : pins[0]?.person
+    const start = me?.lat != null ? me : pins[0]?.members[0]
     g.pointOfView(
       start && start.lat !== null && start.lng !== null
         ? sheet === 'bottom'
           ? { lat: start.lat - 12, lng: start.lng + 20, altitude: 2.6 }
-          : { lat: start.lat - 8, lng: start.lng - 10, altitude: 2.2 }
+          : { lat: start.lat - 8, lng: start.lng - (sheet === 'left' ? 10 : 0), altitude: 2.2 }
         : { lat: 25, lng: -40, altitude: 2.4 },
     )
   }

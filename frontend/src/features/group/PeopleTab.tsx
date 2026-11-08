@@ -1,25 +1,35 @@
 import { Link, useParams } from 'react-router'
 import Avatar from '../../components/Avatar'
-import { card, record } from '../../components/ui'
+import { card } from '../../components/ui'
 import { localTime, weekday } from '../../lib/time'
-import { smart } from '../../lib/typography'
-import { useGroup } from './context'
+import { useGroup, type Person } from './context'
 
-/** People tab (the globe's list): everyone, their city and local time, and who has written. */
+/** Only whether someone has sent mail this week. What they wrote stays sealed until the paper. */
+function Mail({ person, size = 22 }: { person: Person; size?: number }) {
+  const sent = person.notes > 0
+  return (
+    <span aria-hidden="true" className={`leading-none ${sent ? '' : 'opacity-45 grayscale'}`} style={{ fontSize: size }}>
+      {sent ? '💌' : '✉️'}
+    </span>
+  )
+}
+
+const mailLabel = (p: Person) => (p.notes > 0 ? 'Sent mail this week' : 'No mail yet')
+
+/** People tab (the globe's list): everyone, their city and local time, and whether they've sent mail. */
 export default function PeopleTab() {
   const { people, meId } = useGroup()
-  const wrote = people.filter((p) => p.notes > 0).length
+  const sent = people.filter((p) => p.notes > 0).length
 
   return (
     <div className="grid gap-[14px]">
       <div>
-        <h2 className="text-[22px] font-extrabold tracking-[-0.01em]">People</h2>
-        <p className="mt-0.5 text-[14px] text-glass-muted">
-          {wrote} of {people.length} {people.length === 1 ? 'has' : 'have'} written this week.
+        <p className="text-[14px] text-glass-muted">
+          {sent} of {people.length} sent mail this week. It opens Sunday at 6 p.m.
         </p>
         <div className="mt-2.5 flex gap-1" aria-hidden="true">
           {people.map((p) => (
-            <i key={p.id} className={`h-[5px] flex-1 rounded-full ${p.notes ? 'bg-accent' : 'bg-glass-text/10'}`} />
+            <i key={p.id} className={`h-[5px] flex-1 rounded-full transition-colors ${p.notes ? 'bg-accent' : 'bg-glass-text/10'}`} />
           ))}
         </div>
       </div>
@@ -42,14 +52,9 @@ export default function PeopleTab() {
                   {p.tz && `, ${localTime(p.tz)}`}
                 </span>
               </span>
-              <span
-                className="inline-flex items-center gap-1.5"
-                title={p.notes ? `${p.notes} ${p.notes === 1 ? 'note' : 'notes'} this week` : 'Not written yet'}
-              >
-                <span aria-hidden="true" className={`text-[22px] leading-none ${p.notes ? '' : 'opacity-45 grayscale'}`}>
-                  {p.notes ? '💌' : '✉️'}
-                </span>
-                <span className="sr-only">{p.notes ? `${p.notes} ${p.notes === 1 ? 'note' : 'notes'} this week` : 'Not written yet'}</span>
+              <span className="inline-flex items-center gap-1.5" title={mailLabel(p)}>
+                <Mail person={p} />
+                <span className="sr-only">{mailLabel(p)}</span>
                 <span aria-hidden="true" className="text-glass-text/30">
                   ›
                 </span>
@@ -58,21 +63,14 @@ export default function PeopleTab() {
           </li>
         ))}
       </ul>
-
-      <Link to="week?record=1" className={record}>
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor">
-          <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
-        </svg>
-        Record this week's note
-      </Link>
     </div>
   )
 }
 
-/** /groups/:groupId/people/:userId: one person, and their story from the latest paper. */
+/** /groups/:groupId/people/:userId: where someone is, and whether their mail is in. */
 export function PersonView() {
   const { userId = '' } = useParams()
-  const { people, meId, latest, group } = useGroup()
+  const { people, meId } = useGroup()
   const person = people.find((p) => p.id === userId)
   const isMe = userId === meId
 
@@ -87,12 +85,11 @@ export function PersonView() {
     )
   }
 
-  const story = latest?.content?.member_updates.find((u) => u.user_id === person.id)
-  const issue = latest?.issue_number
+  const sent = person.notes > 0
 
   return (
     <div className="grid gap-[14px]">
-      <Link to="../.." relative="path" className="text-[15px] font-semibold text-accent-text">
+      <Link to=".." relative="path" className="text-[15px] font-semibold text-accent-text">
         ‹ People
       </Link>
       <div className="flex items-center gap-3.5">
@@ -106,43 +103,24 @@ export function PersonView() {
         </div>
       </div>
 
-      <p className="rounded-[14px] bg-accent-soft px-3.5 py-2.5 text-[14px] text-[#5c4300]">
-        {person.notes
-          ? `${isMe ? 'You have' : `${person.name} has`} written ${person.notes} ${person.notes === 1 ? 'note' : 'notes'} this week.`
-          : `${isMe ? "You haven't" : `${person.name} hasn't`} written this week yet.`}
-      </p>
-
-      {story ? (
-        <article className={`${card} grid gap-2.5 p-[18px]`}>
-          <div className="flex justify-between gap-2 border-b border-card-line pb-2 text-[12px] text-glass-muted">
-            <b className="font-reading text-[14px] text-glass-text">{group.name}</b>
-            <span>Issue {issue}</span>
-          </div>
-          <h3 className="font-reading text-[22px] font-bold leading-[1.2] text-balance">{smart(story.headline)}</h3>
-          <p className="font-reading text-[17px] leading-[1.6]">
-            {story.dateline && <span className="font-semibold">{story.dateline} — </span>}
-            {smart(story.text)}
+      <div className={`${card} flex items-center gap-3.5 p-4`}>
+        <Mail person={person} size={40} />
+        <div>
+          <p className="font-bold">{sent ? 'Mail is in' : 'No mail yet'}</p>
+          <p className="text-[14px] text-glass-muted">
+            {sent
+              ? `${isMe ? 'Your' : `${person.name}'s`} mail stays sealed until the paper comes out Sunday at 6 p.m.`
+              : isMe
+                ? "You haven't sent anything this week."
+                : `${person.name} hasn't sent anything this week.`}
           </p>
-          <p className="text-[12.5px] text-glass-muted">
-            From {isMe ? 'your' : `${person.name}'s`} notes, Issue {issue}
-          </p>
-        </article>
-      ) : (
-        <p className={`${card} p-4 text-[15px] text-glass-text/80`}>
-          {latest ? `${isMe ? "You weren't" : `${person.name} wasn't`} in Issue ${issue}.` : 'No paper has come out yet.'}
-        </p>
-      )}
+        </div>
+      </div>
 
-      {isMe ? (
-        <Link to="../../week" relative="path" className={record}>
-          Write or record a note
+      {isMe && (
+        <Link to={{ pathname: '../..', search: '?compose=write' }} relative="path" className="text-[15px] font-semibold text-accent-text">
+          {sent ? 'Add another note' : 'Write your note'} ›
         </Link>
-      ) : (
-        latest && (
-          <Link to="../../paper" relative="path" className="text-[15px] font-semibold text-accent-text">
-            Read everyone in Issue {issue} ›
-          </Link>
-        )
       )}
     </div>
   )

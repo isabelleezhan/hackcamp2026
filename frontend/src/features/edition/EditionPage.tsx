@@ -190,8 +190,8 @@ export default function EditionRoute() {
     <EditionScreen
       editionId={editionId}
       back={
-        <Link to=".." relative="path" className="text-[15px] font-semibold text-accent-text">
-          ‹ All issues
+        <Link to="../.." relative="path" className="text-[15px] font-semibold text-accent-text">
+          ‹ Weekly news
         </Link>
       }
     />

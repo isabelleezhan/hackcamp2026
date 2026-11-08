@@ -4,13 +4,12 @@ import { AuthProvider, RequireAuth } from './auth/AuthProvider'
 import { useAuth } from './auth/context'
 import { ProfileProvider, RequireProfile } from './features/account/ProfileProvider'
 import Welcome from './features/account/Welcome'
-import IssuesTab from './features/edition/EditionArchive'
 import EditionRoute from './features/edition/EditionPage'
 import GroupLayout from './features/group/GroupLayout'
 import GroupSettingsTab from './features/group/GroupSettingsTab'
-import PaperTab from './features/group/PaperTab'
+import { ComposeRedirect } from './features/group/ComposeFab'
+import NewsTab from './features/group/NewsTab'
 import PeopleTab, { PersonView } from './features/group/PeopleTab'
-import WeekTab from './features/group/WeekTab'
 import GroupsHome from './features/groups/GroupsHome'
 import JoinPage from './features/groups/JoinPage'
 import DevTools from './pages/DevTools'
@@ -42,11 +41,14 @@ export default function App() {
             <Route path="/" element={signedIn(<GroupsHome />)} />
             <Route path="/join" element={signedIn(<JoinPage />)} />
             <Route path="/groups/:groupId" element={signedIn(<GroupLayout />)}>
-              <Route index element={<PeopleTab />} />
+              {/* Two tabs: Weekly news (index) and People. Notes open from the compose button (?compose=). */}
+              <Route index element={<NewsTab />} />
+              <Route path="people" element={<PeopleTab />} />
               <Route path="people/:userId" element={<PersonView />} />
-              <Route path="week" element={<WeekTab />} />
-              <Route path="paper" element={<PaperTab />} />
-              <Route path="editions" element={<IssuesTab />} />
+              <Route path="week" element={<ComposeRedirect />} />
+              {/* Older links; "paper" keeps the empty-week notice after publishing. */}
+              <Route path="paper" element={<NewsTab />} />
+              <Route path="editions" element={<NewsTab />} />
               {/* The edition email links here. */}
               <Route path="editions/:editionId" element={<EditionRoute />} />
               <Route path="settings" element={<GroupSettingsTab />} />
