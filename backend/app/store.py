@@ -74,7 +74,13 @@ class Store:
                 or response.status_code == 403
             ):
                 raise HTTPException(403, "You do not have access to this action")
-            if message in {"Invalid invitation", "Period not found"}:
+            if message == "Last organizer cannot leave":
+                raise HTTPException(
+                    409,
+                    "You're the only organizer. Delete the newsletter instead, "
+                    "or leave once everyone else has gone.",
+                )
+            if message in {"Invalid invitation", "Period not found", "Group not found"}:
                 raise HTTPException(404, message)
             if code in {"23514", "23503", "22P02"}:
                 raise HTTPException(422, "Invalid data or reference")

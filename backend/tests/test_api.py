@@ -845,3 +845,122 @@ def test_members_include_signed_avatar_urls_only_after_membership_check(settings
 def test_members_refuse_non_members(settings):
     with make_client(settings, member=False) as client:
         assert client.get(f"/groups/{GROUP}/members", headers=AUTH).status_code in {403, 404}
+
+
+def test_rename_group_is_organizer_only(settings):
+    with make_client(settings, role="member") as client:
+        result = client.patch(f"/groups/{GROUP}", headers=AUTH, json={"name": "New name"})
+    assert result.status_code == 403
+
+
+def test_rename_group_trims_and_saves(settings):
+    seen = {}
+
+    def handler(request):
+        if request.url.path == "/rest/v1/groups" and request.method == "PATCH":
+            seen["body"] = json.loads(request.content)
+            assert request.url.params["id"] == f"eq.{GROUP}"
+            return httpx.Response(
+                200, json=[{"id": GROUP, "name": "Family", "join_code": "ABCDEFGH"}]
+            )
+        raise AssertionError(f"Unexpected {request.method} {request.url.path}")
+
+    with make_client(settings, handler) as client:
+        result = client.patch(f"/groups/{GROUP}", headers=AUTH, json={"name": "  Family  "})
+        blank = client.patch(f"/groups/{GROUP}", headers=AUTH, json={"name": "   "})
+    assert result.status_code == 200, result.text
+    assert seen["body"] == {"name": "Family"}
+    assert result.json()["invitation_url"].endswith("/join?code=ABCDEFGH")
+    assert blank.status_code == 422
+
+
+def test_delete_group_is_organizer_only(settings):
+    def handler(request):
+        raise AssertionError("A member must not reach deletion")
+
+    with make_client(settings, handler, role="member") as client:
+        assert client.delete(f"/groups/{GROUP}", headers=AUTH).status_code == 403
+
+
+def test_delete_group_runs_rpc_then_removes_files(settings):
+    calls = []
+
+    def handler(request):
+        path = request.url.path
+        if path == "/rest/v1/reflections":
+            return httpx.Response(
+                200,
+                json=[{"id": "r1", "audio_path": f"{GROUP}/{OWNER}/a.webm", "period_id": PERIOD}],
+            )
+        if path == "/rest/v1/reflection_images":
+            return httpx.Response(200, json=[{"storage_path": f"{GROUP}/{OWNER}/r1/i.png"}])
+        if path == "/rest/v1/rpc/delete_group_for":
+            calls.append(("rpc", json.loads(request.content)))
+            return httpx.Response(200, json=None)
+        if path.startswith("/storage/v1/object/") and request.method == "DELETE":
+            calls.append((path, json.loads(request.content)["prefixes"]))
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"Unexpected {request.method} {path}")
+
+    with make_client(settings, handler) as client:
+        result = client.delete(f"/groups/{GROUP}", headers=AUTH)
+    assert result.status_code == 204, result.text
+    assert calls[0] == ("rpc", {"actor_id": OWNER, "gid": GROUP})
+    assert ("/storage/v1/object/reflection-audio", [f"{GROUP}/{OWNER}/a.webm"]) in calls
+    assert ("/storage/v1/object/reflection-images", [f"{GROUP}/{OWNER}/r1/i.png"]) in calls
+
+
+def test_leave_group_reports_last_organizer(settings):
+    def handler(request):
+        path = request.url.path
+        if path in {"/rest/v1/reflections", "/rest/v1/issue_periods"}:
+            return httpx.Response(200, json=[])
+        if path == "/rest/v1/rpc/leave_group_for":
+            return httpx.Response(
+                400, json={"code": "P0001", "message": "Last organizer cannot leave"}
+            )
+        raise AssertionError(f"Unexpected {request.method} {path}")
+
+    with make_client(settings, handler) as client:
+        result = client.post(f"/groups/{GROUP}/leave", headers=AUTH)
+    assert result.status_code == 409
+    assert "only organizer" in result.json()["detail"]
+
+
+def test_leave_group_only_removes_open_week_files(settings):
+    removed = []
+
+    def handler(request):
+        path = request.url.path
+        if path == "/rest/v1/reflections":
+            assert request.url.params["user_id"] == f"eq.{OWNER}"
+            return httpx.Response(
+                200,
+                json=[
+                    {"id": "r1", "audio_path": f"{GROUP}/{OWNER}/open.webm", "period_id": PERIOD},
+                    {"id": "r2", "audio_path": f"{GROUP}/{OWNER}/old.webm", "period_id": "closed"},
+                ],
+            )
+        if path == "/rest/v1/issue_periods":
+            return httpx.Response(200, json=[{"id": PERIOD}])
+        if path == "/rest/v1/reflection_images":
+            assert request.url.params["reflection_id"] == "in.(r1)"
+            return httpx.Response(200, json=[])
+        if path == "/rest/v1/rpc/leave_group_for":
+            return httpx.Response(200, json=None)
+        if path.startswith("/storage/v1/object/") and request.method == "DELETE":
+            removed.extend(json.loads(request.content)["prefixes"])
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"Unexpected {request.method} {path}")
+
+    with make_client(settings, handler, role="member") as client:
+        result = client.post(f"/groups/{GROUP}/leave", headers=AUTH)
+    assert result.status_code == 204, result.text
+    assert removed == [f"{GROUP}/{OWNER}/open.webm"]
+
+
+def test_non_members_cannot_rename_leave_or_delete(settings):
+    with make_client(settings, member=False) as client:
+        assert client.patch(f"/groups/{GROUP}", headers=AUTH, json={"name": "x"}).status_code == 404
+        assert client.post(f"/groups/{GROUP}/leave", headers=AUTH).status_code == 404
+        assert client.delete(f"/groups/{GROUP}", headers=AUTH).status_code == 404

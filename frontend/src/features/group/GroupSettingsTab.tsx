@@ -1,9 +1,10 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../../auth/context'
 import Avatar from '../../components/Avatar'
-import { card, secondary } from '../../components/ui'
+import { card, input, secondary } from '../../components/ui'
 import { api } from '../../lib/api'
+import { inviteUrl } from '../../lib/invite'
 import { useProfile } from '../account/context'
 import { useGroup } from './context'
 import PublicationSchedule from './PublicationSchedule'
@@ -153,6 +154,7 @@ export default function GroupSettingsTab() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const canShare = typeof navigator.share === 'function'
+  const invite = inviteUrl(group.join_code)
 
   async function toggleEmail() {
     const next = !email
@@ -174,6 +176,10 @@ export default function GroupSettingsTab() {
     <div className="grid gap-5 pb-2">
       <h2 className="text-[22px] font-extrabold tracking-[-0.01em]">Settings</h2>
 
+      <Section title="Newsletter">
+        <RenameRow />
+      </Section>
+
       {params.get('new') && (
         <p role="status" className="rounded-[14px] bg-accent-soft px-4 py-3 text-[15px] font-semibold text-accent-text">
           Your newsletter is ready. Invite people with the link or code below.
@@ -184,11 +190,11 @@ export default function GroupSettingsTab() {
         <div className={row}>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] text-glass-muted">Invite link</p>
-            <p className="truncate font-semibold" title={group.invitation_url}>
-              {group.invitation_url.replace(/^https?:\/\//, '')}
+            <p className="truncate font-semibold" title={invite}>
+              {invite.replace(/^https?:\/\//, '')}
             </p>
           </div>
-          <CopyButton text={group.invitation_url} label="invite link" />
+          <CopyButton text={invite} label="invite link" />
         </div>
         <div className={row}>
           <div className="min-w-0 flex-1">
@@ -204,7 +210,7 @@ export default function GroupSettingsTab() {
               className={`${secondary} w-full`}
               onClick={() =>
                 void navigator
-                  .share({ title: group.name, text: `Join ${group.name} on Community Newspaper`, url: group.invitation_url })
+                  .share({ title: group.name, text: `Join ${group.name} on MailBuds`, url: invite })
                   .catch(() => {})
               }
             >
@@ -279,6 +285,195 @@ export default function GroupSettingsTab() {
           Sign out
         </button>
       </Section>
+
+      <LeaveOrDelete />
     </div>
+  )
+}
+
+/** The newsletter's name; organizers can rename it in place. */
+function RenameRow() {
+  const { group, isOrganizer, refresh } = useGroup()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(group.name)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    const next = name.trim()
+    if (!next) {
+      setError('Enter a name')
+      return
+    }
+    if (next === group.name) {
+      setEditing(false)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await api(`/groups/${group.id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) })
+      await refresh()
+      setEditing(false)
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Couldn't rename the newsletter. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={save} className={`${row} flex-wrap`}>
+        <label htmlFor="newsletter-name" className="sr-only">
+          Newsletter name
+        </label>
+        <input
+          id="newsletter-name"
+          className={`${input} min-w-0 flex-1`}
+          value={name}
+          maxLength={120}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          disabled={busy}
+          onChange={(e) => {
+            setName(e.target.value)
+            setError(null)
+          }}
+        />
+        <div className="flex gap-3 text-[14px] font-semibold">
+          <button type="submit" disabled={busy} className="text-accent-text disabled:opacity-50">
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setEditing(false)
+              setName(group.name)
+              setError(null)
+            }}
+            className="text-glass-muted"
+          >
+            Cancel
+          </button>
+        </div>
+        {error && (
+          <p role="alert" className="w-full text-[13px] text-alert">
+            {error}
+          </p>
+        )}
+      </form>
+    )
+  }
+
+  return (
+    <div className={row}>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] text-glass-muted">Name</span>
+        <span className="block truncate font-semibold">{group.name}</span>
+      </span>
+      {isOrganizer && (
+        <button
+          type="button"
+          onClick={() => {
+            setName(group.name)
+            setEditing(true)
+          }}
+          className="shrink-0 text-[14px] font-semibold text-accent-text"
+        >
+          Rename
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Leave (anyone) or delete for everyone (organizers), each behind a confirmation step. */
+function LeaveOrDelete() {
+  const { group, isOrganizer, people } = useGroup()
+  const navigate = useNavigate()
+  const [confirming, setConfirming] = useState<'leave' | 'delete' | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const alone = people.length <= 1
+
+  async function run(action: 'leave' | 'delete') {
+    setBusy(true)
+    setError(null)
+    try {
+      await api(action === 'leave' ? `/groups/${group.id}/leave` : `/groups/${group.id}`, {
+        method: action === 'leave' ? 'POST' : 'DELETE',
+      })
+      navigate('/', { replace: true })
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : 'Something went wrong. Try again.')
+      setBusy(false)
+    }
+  }
+
+  const confirmText =
+    confirming === 'delete'
+      ? `Delete ${group.name} for everyone? All notes, issues and photos in it are removed. This can't be undone.`
+      : alone
+        ? `Leave ${group.name}? You're the only member, so the newsletter and everything in it is deleted.`
+        : `Leave ${group.name}? Your notes for this week are removed. Issues that already came out keep your stories.`
+
+  return (
+    <section className="grid gap-2" aria-label="Leave or delete">
+      <div className={`${card} overflow-hidden`}>
+        {confirming ? (
+          <div className="grid gap-3 px-4 py-3">
+            <p className="text-[14px]">{confirmText}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run(confirming)}
+                className="inline-flex items-center justify-center rounded-[12px] bg-alert px-4 py-2.5 text-[14px] font-bold text-white disabled:opacity-50"
+              >
+                {busy ? 'Working…' : confirming === 'delete' ? 'Delete for everyone' : 'Leave newsletter'}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(null)
+                  setError(null)
+                }}
+                className={`${secondary} px-4 py-2.5 text-[14px]`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirming('leave')}
+              className={`${row} w-full text-left font-semibold text-alert hover:bg-glass-row`}
+            >
+              Leave newsletter
+            </button>
+            {isOrganizer && (
+              <button
+                type="button"
+                onClick={() => setConfirming('delete')}
+                className={`${row} w-full text-left font-semibold text-alert hover:bg-glass-row`}
+              >
+                Delete newsletter
+              </button>
+            )}
+          </>
+        )}
+        {error && (
+          <p role="alert" className="border-t border-card-line px-4 py-2.5 text-[13px] text-alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
   )
 }

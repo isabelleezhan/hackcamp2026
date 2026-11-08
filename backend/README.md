@@ -1,4 +1,4 @@
-# Community Newspaper API
+# MailBuds API
 
 FastAPI backend for the PRD. Supabase Auth provides identity, Supabase provides Postgres/storage, Gemini handles transcription and newspaper JSON, and Resend sends edition emails.
 
@@ -95,7 +95,7 @@ default. Keep it disabled in deployed environments. PDF uploads are limited to
 form or sending again after a success starts a new logical email.
 
 For testing without a verified domain, set
-`EMAIL_FROM=Community Newspaper <onboarding@resend.dev>` and send to the email
+`EMAIL_FROM=MailBuds <onboarding@resend.dev>` and send to the email
 address associated with your Resend account. A Gmail address cannot be used as
 the sender through Resend. For other recipients, verify a domain you own and use
 a sender on that domain. See [Resend's test sender restrictions](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain).

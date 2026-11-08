@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     ffprobe_path: str = "ffprobe"
     # Nominatim requires an identifying User-Agent. Never put personal data here.
     geocoder_user_agent: str = (
-        "CommunityNewspaper/0.1 (HackCamp 2026; +https://github.com/isabelleezhan/hackcamp2026)"
+        "MailBuds/0.1 (HackCamp 2026; +https://github.com/isabelleezhan/hackcamp2026)"
     )
 
     @field_validator("cors_origins", mode="before")
